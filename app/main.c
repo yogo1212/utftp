@@ -80,7 +80,7 @@ static void file_context_free(utftp_transmission_t *t, bool complete, void *ctx)
 		addr = display_peer((struct sockaddr *) &peer, peer_len);
 
 	if (complete)
-		fprintf(stderr, "transaction with %s complete\n", addr);
+		printf("%s -transaction with complete\n", addr);
 
 	file_context_t *fc = ctx;
 
@@ -273,7 +273,7 @@ static void error_cb(const struct sockaddr *peer, socklen_t peer_len, utftp_errc
 
 	const char *addr = display_peer(peer, peer_len);
 
-	fprintf(stderr, "error in transmission with %s - %s (%d) \n", addr, error_string, error_code);
+	fprintf(stderr, "%s - error in transmission: %s (%d) \n", addr, error_string, error_code);
 }
 
 static void _utftp_server_free(void *ctx)
