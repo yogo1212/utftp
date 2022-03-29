@@ -91,12 +91,16 @@ static void file_context_free(utftp_transmission_t *t, bool complete, void *ctx)
 // some windows file APIs support slashes, so they're always checked
 static bool is_valid_path(const char *path)
 {
-	if (path[0] == '/')
-		return false;
-
 	if (getenv("WINDOWS_PATH_CHECKS")) {
-		if (path[1] == ':' && path[2] == '\\')
-			return false;
+		if (getenv("NO_DIR_TRAVERSAL")) {
+			if (strchr(path, '\\'))
+				return false;
+		}
+
+		if (!getenv("ALLOW_ABSOLUTE_PATHS")) {
+			if (path[1] == ':' && path[2] == '\\')
+				return false;
+		}
 
 		if (strncmp(path, "..\\", 3) == 0)
 			return false;
@@ -105,7 +109,12 @@ static bool is_valid_path(const char *path)
 			return false;
 
 		// TODO is it possible to mix slashes and backslashes?
-		// if so, the combinations need to be checked as well
+		// if so, combinations need to be checked as well
+	}
+
+	if (!getenv("ALLOW_ABSOLUTE_PATHS")) {
+		if (path[0] == '/')
+			return false;
 	}
 
 	if (strncmp(path, "../", 3) == 0)
@@ -288,7 +297,24 @@ int main(int argc, char *argv[])
 	argc--;
 
 	if (argc == 0) {
-		fprintf(stderr, "need a mode: listen, get, put\n");
+		fprintf(stderr, "usage: listen, get, put\n");
+		fprintf(stderr, "\n");
+		fprintf(stderr, "the following environment variables are supported.\n");
+		fprintf(stderr, "\n");
+		fprintf(stderr, "general options:\n");
+		fprintf(stderr, "\tPORT: bind to a specific local port\n");
+		fprintf(stderr, "\tFILE_SIZE_LIMIT: limit the size for incoming transmissions\n");
+		fprintf(stderr, "\n");
+		fprintf(stderr, "general file path restrictions:\n");
+		fprintf(stderr, "\tby default, file names starting with a slash or going up directories are rejected.\n");
+		fprintf(stderr, "\tWINDOWS_PATH_CHECKS: reject paths starting with \"x:\\\" or \"..\\\" or containing \"\\..\\\"\n");
+		fprintf(stderr, "\tNO_DIR_TRAVERSAL: reject paths containing slashes (or backslashes when using WINDOWS_PATH_CHECKS)\n");
+		fprintf(stderr, "\tALLOW_ABSOLUTE_PATHS: allow absolute paths (drive letters with WINDOWS_PATH_CHECKS)\n");
+		fprintf(stderr, "\tNO_FOLLOW: reject paths containing symlinks\n");
+		fprintf(stderr, "\n");
+		fprintf(stderr, "incoming file restrictions (server only):\n");
+		fprintf(stderr, "\tNO_CREATE: don't create files\n");
+		fprintf(stderr, "\tNO_OVERWRITE: don't overwrite files\n");
 		return EXIT_FAILURE;
 	}
 
