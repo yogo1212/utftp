@@ -124,7 +124,7 @@ void utftp_transmission_write_cb(utftp_transmission_t *t, const transmission_int
 
 	if (t->last_block) {
 		utftp_transmission_complete_transaction(t);
-		return;
+		goto send_ack;
 	}
 
 	if (t->sent_error) {
