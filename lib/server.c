@@ -26,7 +26,6 @@ static void delete_server_transmission(utftp_transmission_t *t, void *ctx)
 {
 	utftp_server_t *s = ctx;
 
-fprintf(stderr, "delete_server_transmission t %p ctx %p\n", (void *) t, (void *) ctx);
 	HASH_DEL(s->transmissions, t);
 }
 
