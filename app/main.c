@@ -3,12 +3,24 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <utftp.h>
 
 #include "net_util.h"
+
+static void handle_sigint(evutil_socket_t fd, short what, void *ctx)
+{
+	(void) fd;
+	(void) what;
+
+	struct event_base *base = ctx;
+	event_base_loopbreak(base);
+
+	// TODO stop listening?
+}
 
 static bool get_file_size_limit(size_t *limit)
 {
@@ -334,7 +346,11 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
+	struct event *sig_event = evsignal_new(base, SIGINT, handle_sigint, base);
+
 	event_base_dispatch(base);
+
+	event_free(sig_event);
 
 	cleanup(actor);
 
