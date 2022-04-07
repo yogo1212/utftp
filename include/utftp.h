@@ -53,6 +53,27 @@ typedef enum {
 } utftp_mode_t;
 
 /*
+ * peer can be NULL
+ * if remote is true, the error was sent by the peer
+ */
+typedef void (*utftp_error_cb)(const struct sockaddr *peer, socklen_t peer_len, bool remote, utftp_errcode_t error_code, const char *error_string, void *ctx);
+
+struct utftp_client;
+typedef struct utftp_client utftp_client_t;
+
+utftp_client_t *utftp_client_new(const struct sockaddr *peer, socklen_t peer_len, utftp_error_cb error_cb, utftp_ctx_cleanup_cb cleanup_cb, void *ctx);
+void utftp_client_free(utftp_client_t *c);
+
+typedef void (*utftp_tsize_cb)(size_t tsize, void *ctx);
+
+/*
+ * tsize_cb can be NULL and will only be called if there's an OACK response containing tsize.
+ * use only one ;-)
+ */
+bool utftp_client_read(utftp_client_t *c, struct event_base *base, utftp_mode_t mode, const char *file, utftp_next_block_cb data_cb, uint16_t *block_size, uint8_t *timeout, utftp_tsize_cb tsize_cb);
+bool utftp_client_write(utftp_client_t *c, struct event_base *base, utftp_mode_t mode, const char *file, utftp_next_block_cb data_cb, uint16_t *block_size, uint8_t *timeout, size_t *tsize);
+
+/*
  * if the request included the tsize option, *tsize points to the supplied value.
  * for read requests, set *tsize to inform the client about the size of the transmission.
  * tsize is NULL if the client didn't include the option
@@ -64,11 +85,6 @@ typedef utftp_next_block_cb (*utftp_transmission_cb)(utftp_transmission_t *t, ut
 
 struct utftp_server;
 typedef struct utftp_server utftp_server_t;
-
-/*
- * peer can be NULL
- */
-typedef void (*utftp_error_cb)(const struct sockaddr *peer, socklen_t peer_len, utftp_errcode_t error_code, const char *error_string, void *ctx);
 
 /*
  * fd must be bound already and will be closed by utftp_server_free

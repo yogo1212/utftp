@@ -110,6 +110,14 @@ bool utftp_proto_detect_mode(const char *s, uint8_t *mode)
 	return false;
 }
 
+char *utftp_proto_write_mode(char *buf, size_t len, uint8_t mode)
+{
+	if (mode >= (sizeof(mode_strings) / sizeof(mode_strings[0])))
+		return NULL;
+
+	return utftp_proto_write_zt_string(buf, len, mode_strings[mode]);
+}
+
 bool utftp_proto_detect_option(const char *s, uint8_t *mode)
 {
 	if (strcasecmp(s, option_strings[OPTION_BIT_BLKSIZE]) == 0) {

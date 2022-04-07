@@ -29,12 +29,12 @@ static void delete_server_transmission(utftp_transmission_t *t, void *ctx)
 	HASH_DEL(s->transmissions, t);
 }
 
-static void server_error_cb(const struct sockaddr *peer, socklen_t peer_len, utftp_errcode_t error_code, const char *error_string, void *ctx)
+static void server_error_cb(const struct sockaddr *peer, socklen_t peer_len, bool remote, utftp_errcode_t error_code, const char *error_string, void *ctx)
 {
 	utftp_server_t *s = ctx;
 
 	if (s->error_cb)
-		s->error_cb(peer, peer_len, error_code, error_string, s->ctx);
+		s->error_cb(peer, peer_len, remote, error_code, error_string, s->ctx);
 }
 
 static void server_peer_write_cb(evutil_socket_t fd, short what, void *ctx)
@@ -48,7 +48,7 @@ static void server_peer_write_cb(evutil_socket_t fd, short what, void *ctx)
 		if (what & EV_TIMEOUT) {
 			if (t->expire_at < time(NULL)) {
 				if (!t->last_block)
-					utftp_handle_error(t->fd, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "transaction timed out", s->error_cb, s->ctx);
+					utftp_handle_local_error(t->fd, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "transaction timed out", s->error_cb, s->ctx);
 
 				HASH_DEL(s->transmissions, t);
 				utftp_transmission_free(t);
@@ -67,7 +67,7 @@ static void server_peer_write_cb(evutil_socket_t fd, short what, void *ctx)
 		server_error_cb,
 	};
 
-	utftp_transmission_write_cb(t, &server_cbs);
+	utftp_transmission_receive_cb(t, &server_cbs);
 }
 
 static void server_peer_read_cb(evutil_socket_t fd, short what, void *ctx)
@@ -81,7 +81,7 @@ static void server_peer_read_cb(evutil_socket_t fd, short what, void *ctx)
 		if (what & EV_TIMEOUT) {
 			if (t->expire_at < time(NULL)) {
 				if (!t->last_block)
-					utftp_handle_error(t->fd, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "transaction timed out", s->error_cb, s->ctx);
+					utftp_handle_local_error(t->fd, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "transaction timed out", s->error_cb, s->ctx);
 
 				HASH_DEL(s->transmissions, t);
 				utftp_transmission_free(t);
@@ -100,7 +100,7 @@ static void server_peer_read_cb(evutil_socket_t fd, short what, void *ctx)
 		server_error_cb,
 	};
 
-	utftp_transmission_read_cb(t, &server_cbs);
+	utftp_transmission_send_cb(t, &server_cbs);
 }
 
 static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
@@ -116,19 +116,19 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 	ssize_t rlen = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *) &peer, &peer_len);
 	if (rlen == -1) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK)
-			utftp_handle_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, strerror(errno), s->error_cb, s->ctx);
+			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, strerror(errno), s->error_cb, s->ctx);
 
 		return;
 	}
 
 	if (rlen < 2) {
-		utftp_handle_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "short read", s->error_cb, s->ctx);
+		utftp_handle_local_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "short read", s->error_cb, s->ctx);
 		return;
 	}
 
 	uint16_t op = ntohs(*((uint16_t *) buf));
 	if (op != TFTP_OP_READ && op != TFTP_OP_WRITE) {
-		utftp_handle_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_ILLEGAL_OP, sprintfa("invalid operation %04" PRIx16, op), s->error_cb, s->ctx);
+		utftp_handle_local_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_ILLEGAL_OP, sprintfa("invalid operation %04" PRIx16, op), s->error_cb, s->ctx);
 		return;
 	}
 
@@ -136,34 +136,32 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 
 	const char *pos = utftp_proto_next_zt(filename, remaining(buf, rlen, filename));
 	if (!pos) {
-		utftp_handle_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "unterminated filename", s->error_cb, s->ctx);
+		utftp_handle_local_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "unterminated filename", s->error_cb, s->ctx);
 		return;
 	}
 
 	const char *mode = pos + 1;
 	pos = utftp_proto_next_zt(mode, remaining(buf, rlen, mode));
 	if (!pos) {
-		utftp_handle_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "unterminated mode", s->error_cb, s->ctx);
+		utftp_handle_local_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "unterminated mode", s->error_cb, s->ctx);
 		return;
 	}
 
 	uint8_t mode_u;
 	if (!utftp_proto_detect_mode(mode, &mode_u)) {
-		utftp_handle_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("unknown mode \"%s\"", mode), s->error_cb, s->ctx);
+		utftp_handle_local_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("unknown mode \"%s\"", mode), s->error_cb, s->ctx);
 		return;
 	}
 
 	pos = pos + 1;
 
 	utftp_transmission_t *t = utftp_transmission_new(
-		event_get_base(s->evt),
-		op == TFTP_OP_WRITE ? server_peer_write_cb : server_peer_read_cb,
 		(struct sockaddr *) &peer,
 		peer_len,
+		server_error_cb,
 		s
 	);
 	if (!t) {
-		utftp_handle_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "couldn't allocate transmission data", s->error_cb, s->ctx);
 		return;
 	}
 
@@ -182,16 +180,16 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 		if (value == pos)
 			break;
 
+		// TODO 'windowsize' option
+		uint8_t option_u;
+		if (!utftp_proto_detect_option(option, &option_u))
+			continue;
+
 		option = pos + 1;
 
 		char *endptr;
 		unsigned long value_u = strtoul(value, &endptr, 10);
 		if (!endptr || *endptr != '\0')
-			continue;
-
-		// TODO 'windowsize' option
-		uint8_t option_u;
-		if (!utftp_proto_detect_option(option, &option_u))
 			continue;
 
 		switch (option_u) {
@@ -217,7 +215,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 			continue;
 		}
 
-		option_mask = option_mask | OPTION_BIT_TSIZE;
+		option_mask = option_mask | option_u;
 	}
 
 	t->data_cb = NULL;
@@ -225,13 +223,13 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 	switch (op) {
 	case TFTP_OP_READ:
 		t->data_cb = s->send_cb(t, mode_u, filename, option_mask & OPTION_BIT_TSIZE ? &tsize : NULL, s->ctx);
+		// TODO tsize mustn't change otherwise
+		if (tsize == 0)
+			option_mask = option_mask & ~OPTION_BIT_TSIZE;
 
 		break;
 	case TFTP_OP_WRITE:
 		t->data_cb = s->receive_cb(t, mode_u, filename, option_mask & OPTION_BIT_TSIZE ? &tsize : NULL, s->ctx);
-		// TODO tsize mustn't change otherwise
-		if (tsize == 0)
-			option_mask = option_mask & ~OPTION_BIT_TSIZE;
 
 		break;
 	}
@@ -243,10 +241,13 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 		goto cleanup_t;
 	}
 
-	struct timeval tv = { t->timeout, 0 };
-	event_add(t->evt, &tv);
+	if (!utftp_transmission_start(t, event_get_base(s->evt), op == TFTP_OP_WRITE ? server_peer_write_cb : server_peer_read_cb)) {
+		utftp_handle_local_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "couldn't start transmission", s->error_cb, s->ctx);
+		goto cleanup_t;
+	}
 
 	if (option_mask != 0) {
+		// TODO maybe not ack tsize for write requests?
 		if (!utftp_proto_send_oack(
 			t->fd,
 			(struct sockaddr *) &peer, peer_len,
@@ -254,7 +255,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 			option_mask & OPTION_BIT_TIMEOUT ? &t->timeout : NULL,
 			option_mask & OPTION_BIT_TSIZE ? &tsize : NULL)
 		) {
-			utftp_handle_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("failed to send oack: %s", strerror(errno)), s->error_cb, s->ctx);
+			utftp_handle_local_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("failed to send oack: %s", strerror(errno)), s->error_cb, s->ctx);
 			goto cleanup_t;
 		}
 	} else {
@@ -263,13 +264,13 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 				goto cleanup_t;
 
 			if (!utftp_proto_send_block(t->fd, (struct sockaddr *) &peer, peer_len, t->previous_block, t->buf, t->block_size)) {
-				utftp_handle_error(-1, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("failed to send first block: %s", strerror(errno)), s->error_cb, s->ctx);
+				utftp_handle_local_error(-1, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("failed to send first block: %s", strerror(errno)), s->error_cb, s->ctx);
 				goto cleanup_t;
 			}
 		}
 		else {
 			if (!utftp_proto_send_ack(t->fd, (struct sockaddr *) &peer, peer_len, 0)) {
-				utftp_handle_error(-1, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("failed to send first ack: %s", strerror(errno)), s->error_cb, s->ctx);
+				utftp_handle_local_error(-1, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("failed to send first ack: %s", strerror(errno)), s->error_cb, s->ctx);
 				goto cleanup_t;
 			}
 		}

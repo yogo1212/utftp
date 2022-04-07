@@ -29,10 +29,12 @@ bool utftp_proto_send_oack(int fd, struct sockaddr *peer, socklen_t peer_len, ui
 bool utftp_proto_send_block(int fd, struct sockaddr *peer, socklen_t peer_len, uint16_t block, void *data, size_t len);
 
 const char *utftp_proto_next_zt(const char *ptr, size_t len);
-bool utftp_proto_detect_mode(const char *s, uint8_t *mode);
-bool utftp_proto_detect_option(const char *s, uint8_t *option);
-
 char *utftp_proto_write_zt_string(char *buf, size_t len, const char *s);
+
+bool utftp_proto_detect_mode(const char *s, uint8_t *mode);
+char *utftp_proto_write_mode(char *buf, size_t len, uint8_t mode);
+
+bool utftp_proto_detect_option(const char *s, uint8_t *option);
 char *utftp_proto_write_option(char *buf, size_t len, uint8_t option, size_t num);
 
 #endif

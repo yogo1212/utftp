@@ -11,6 +11,8 @@
 #include "utftp.h"
 
 
+#define UTFTP_DEFAULT_TIMEOUT (1)
+
 typedef struct {
 	void (*cleanup_cb)(utftp_transmission_t *t, void *ctx);
 	utftp_error_cb error_cb;
@@ -55,21 +57,28 @@ struct utftp_transmission {
     target; \
   })
 
-utftp_transmission_t *utftp_transmission_new(struct event_base *base, event_callback_fn cb, struct sockaddr *peer, socklen_t peer_len, void *internal_ctx);
+utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, socklen_t peer_len, utftp_error_cb error_cb, void *internal_ctx);
+bool utftp_transmission_start(utftp_transmission_t *t, struct event_base *base, event_callback_fn cb);
 void utftp_transmission_free(utftp_transmission_t *t);
 
 bool utftp_transmission_fetch_next_block(utftp_transmission_t *t);
 void utftp_transmission_set_expiration(utftp_transmission_t *t);
 void utftp_transmission_complete_transaction(utftp_transmission_t *t);
+bool utftp_transmission_send_raw_buf(utftp_transmission_t *t);
 
-void utftp_transmission_read_cb(utftp_transmission_t *t, const transmission_internal_cbs_t *cbs);
-void utftp_transmission_write_cb(utftp_transmission_t *t, const transmission_internal_cbs_t *cbs);
+bool utftp_transmission_send_raw_buf(utftp_transmission_t *t);
 
-void utftp_internal_send_error(int fd, struct sockaddr *peer, socklen_t peer_len, utftp_errcode_t error_code, const char *error_string);
+bool utftp_transmission_handle_ack(utftp_transmission_t *t, uint16_t block_num, const transmission_internal_cbs_t *cbs);
+void utftp_transmission_send_cb(utftp_transmission_t *t, const transmission_internal_cbs_t *cbs);
+void utftp_transmission_handle_data(utftp_transmission_t *t, uint16_t block_num, void *data, size_t data_len, const transmission_internal_cbs_t *cbs);
+void utftp_transmission_receive_cb(utftp_transmission_t *t, const transmission_internal_cbs_t *cbs);
+
+void utftp_internal_send_error(int fd, const struct sockaddr *peer, socklen_t peer_len, utftp_errcode_t error_code, const char *error_string);
 
 // calls error_cb and send_error
-void utftp_handle_error(int fd, struct sockaddr *peer, socklen_t peer_len, utftp_errcode_t error_code, const char *error_string, utftp_error_cb error_cb, void *ctx);
+void utftp_handle_local_error(int fd, const struct sockaddr *peer, socklen_t peer_len, utftp_errcode_t error_code, const char *error_string, utftp_error_cb error_cb, void *ctx);
 
+void utftp_handle_remote_error(const struct sockaddr *peer, socklen_t peer_len, const uint8_t *buf, size_t buf_len, utftp_error_cb error_cb, void *ctx);
 
 void utftp_normalise_mapped_ipv4(struct sockaddr *s, socklen_t *len);
 

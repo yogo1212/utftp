@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <errno.h>
 #include <event2/event.h>
 #include <fcntl.h>
@@ -31,7 +32,6 @@ static bool get_file_size_limit(size_t *limit)
 	return sscanf(s, "%zu", limit) != 1;
 }
 
-// will leave port unchanged but return true if env is not set
 static bool get_port(uint16_t *port)
 {
 	const char *s = getenv("PORT");
@@ -53,6 +53,79 @@ static bool get_port(uint16_t *port)
 	return true;
 }
 
+static uint16_t *get_block_size(void)
+{
+	const char *s = getenv("BLOCK_SIZE");
+	if (!s)
+		return NULL;
+
+	unsigned int buf;
+	if (sscanf(s, "%u", &buf) != 0) {
+		fprintf(stderr, "couldn't parse block size \"%s\"\n", s);
+		return NULL;
+	}
+
+	if (buf > UINT16_MAX) {
+		fprintf(stderr, "invalid block_size: %u\n", buf);
+		return NULL;
+	}
+
+	static uint16_t block_size;
+	block_size = buf;
+	return &block_size;
+}
+
+static uint8_t *get_timeout(void)
+{
+	const char *s = getenv("TIMEOUT");
+	if (!s)
+		return NULL;
+
+	unsigned int buf;
+	if (sscanf(s, "%u", &buf) != 0) {
+		fprintf(stderr, "couldn't parse timeout \"%s\"\n", s);
+		return NULL;
+	}
+
+	if (buf > UINT8_MAX) {
+		fprintf(stderr, "invalid timeout value: %u\n", buf);
+		return NULL;
+	}
+
+	static uint8_t timeout;
+	timeout = buf;
+	return &timeout;
+}
+
+static bool set_listen_addr(struct in6_addr *a)
+{
+	const char *listen_addr = getenv("LISTEN_ADDRESS");
+	if (!listen_addr) {
+		memcpy(a, &in6addr_any, sizeof(*a));
+		return true;
+	}
+
+	if (strchr(listen_addr, ':')) {
+		if (inet_pton(AF_INET6, listen_addr, a) != 1) {
+			fprintf(stderr, "failed to parse IPv6 address: %s (%s)\n", listen_addr, strerror(errno));
+			return false;
+		}
+	}
+	else {
+		struct in_addr a4;
+		if (inet_pton(AF_INET, listen_addr, &a4) != 1) {
+			fprintf(stderr, "failed to parse IPv4 address: %s (%s)\n", listen_addr, strerror(errno));
+			return false;
+		}
+
+		const uint16_t mapped_prefix[6] = { 0, 0, 0, 0, 0, 0xFFFF };
+		memcpy(a->s6_addr16, mapped_prefix, sizeof(mapped_prefix));
+		memcpy(&a->s6_addr[12], &a4, 4);
+	}
+
+	return true;
+}
+
 static const char *display_peer(const struct sockaddr *peer, socklen_t peer_len)
 {
 	const char *addr = NULL;
@@ -68,6 +141,14 @@ typedef struct {
 	int fd;
 } file_context_t;
 
+static void _file_context_tsize_cb(size_t tsize, void *ctx)
+{
+	file_context_t *fc = ctx;
+
+	if (ftruncate(fc->fd, tsize) == -1)
+		fprintf(stderr, "ftrunctate failed: %s\n", strerror(errno));
+}
+
 static void file_context_free(utftp_transmission_t *t, bool complete, void *ctx)
 {
 	struct sockaddr_storage peer;
@@ -79,8 +160,7 @@ static void file_context_free(utftp_transmission_t *t, bool complete, void *ctx)
 	else
 		addr = display_peer((struct sockaddr *) &peer, peer_len);
 
-	if (complete)
-		printf("%s -transaction with complete\n", addr);
+	printf("%s - transaction %scomplete\n", addr, complete ? "" : "in");
 
 	file_context_t *fc = ctx;
 
@@ -141,11 +221,16 @@ static int file_flags(bool writing)
 		f = f | O_NOFOLLOW;
 
 	if (writing) {
+		f = f | O_WRONLY;
+
 		if (!getenv("NO_CREATE"))
 			f = f | O_CREAT;
 
 		if (getenv("NO_OVERWRITE"))
 			f = f | O_EXCL;
+	}
+	else {
+		f = f | O_RDONLY;
 	}
 
 	return f;
@@ -202,7 +287,7 @@ static utftp_next_block_cb receive_cb(utftp_transmission_t *t, utftp_mode_t mode
 		return NULL;
 	}
 
-	fc->fd = open(file, file_flags(true) | O_WRONLY, S_IRUSR | S_IWUSR);
+	fc->fd = open(file, file_flags(true), S_IRUSR | S_IWUSR);
 	if (fc->fd == -1) {
 		fprintf(stderr, "file \"%s\" can't be opened for writing: %s\n", file, strerror(errno));
 		utftp_transmission_end_with_error(t, UTFTP_ERR_UNDEFINED, "can't open file");
@@ -254,7 +339,7 @@ static utftp_next_block_cb send_cb(utftp_transmission_t *t, utftp_mode_t mode, c
 		return NULL;
 	}
 
-	fc->fd = open(file, file_flags(false) | O_RDONLY);
+	fc->fd = open(file, file_flags(false));
 	if (fc->fd == -1) {
 		fprintf(stderr, "file \"%s\" can't be opened for reading: %s\n", file, strerror(errno));
 		utftp_transmission_end_with_error(t, UTFTP_ERR_UNDEFINED, "can't open file");
@@ -276,13 +361,19 @@ static utftp_next_block_cb send_cb(utftp_transmission_t *t, utftp_mode_t mode, c
 	return send_block_cb;
 }
 
-static void error_cb(const struct sockaddr *peer, socklen_t peer_len, utftp_errcode_t error_code, const char *error_string, void *ctx)
+static void error_cb(const struct sockaddr *peer, socklen_t peer_len, bool remote, utftp_errcode_t error_code, const char *error_string, void *ctx)
 {
 	(void) ctx;
 
 	const char *addr = display_peer(peer, peer_len);
 
-	fprintf(stderr, "%s - error in transmission: %s (%d) \n", addr, error_string, error_code);
+	fprintf(stderr, "%s - %s error in transmission: %s (%d) \n", addr, remote ? "remote" : "local", error_string, error_code);
+}
+
+static void _utftp_client_free(void *ctx)
+{
+	utftp_client_t *c = ctx;
+	utftp_client_free(c);
 }
 
 static void _utftp_server_free(void *ctx)
@@ -302,8 +393,10 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "the following environment variables are supported.\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "general options:\n");
-		fprintf(stderr, "\tPORT: bind to a specific local port\n");
-		fprintf(stderr, "\tFILE_SIZE_LIMIT: limit the size for incoming transmissions\n");
+		fprintf(stderr, "\tPORT: bind (with listen) or connect (client) to a specific port\n");
+		fprintf(stderr, "\n");
+		fprintf(stderr, "server only options:\n");
+		fprintf(stderr, "\tLISTEN_ADDRESS: bind to a specific address\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "general file path restrictions:\n");
 		fprintf(stderr, "\tby default, file names starting with a slash or going up directories are rejected.\n");
@@ -312,9 +405,10 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "\tALLOW_ABSOLUTE_PATHS: allow absolute paths (drive letters with WINDOWS_PATH_CHECKS)\n");
 		fprintf(stderr, "\tNO_FOLLOW: reject paths containing symlinks\n");
 		fprintf(stderr, "\n");
-		fprintf(stderr, "incoming file restrictions (server only):\n");
+		fprintf(stderr, "incoming file restrictions:\n");
 		fprintf(stderr, "\tNO_CREATE: don't create files\n");
 		fprintf(stderr, "\tNO_OVERWRITE: don't overwrite files\n");
+		fprintf(stderr, "\tFILE_SIZE_LIMIT: limit the size for incoming transmissions\n");
 		return EXIT_FAILURE;
 	}
 
@@ -334,18 +428,23 @@ int main(int argc, char *argv[])
 	void *actor = NULL;
 	void (*cleanup)(void *actor);
 
-	if (strcmp(operation, "listen") == 0) {
-		uint16_t port = UTFTP_DEFAULT_PORT;
-		if (!get_port(&port))
-			return EXIT_FAILURE;
+	uint16_t port = UTFTP_DEFAULT_PORT;
+	if (!get_port(&port))
+		goto cleanup_base;
 
+	if (strcmp(operation, "listen") == 0) {
 		// TODO interface
 
 		struct sockaddr_in6 addr;
 		memset(&addr, 0, sizeof(addr));
 		addr.sin6_family = AF_INET6;
-		addr.sin6_addr = in6addr_any;
 		addr.sin6_port = htons(port);
+
+		if (!set_listen_addr(&addr.sin6_addr)) {
+			fprintf(stderr, "failed to set listen address\n");
+			close(fd);
+			goto cleanup_base;
+		}
 
 		if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
 			fprintf(stderr, "couldn't bind socket: %s\n", strerror(errno));
@@ -363,10 +462,93 @@ int main(int argc, char *argv[])
 		actor = s;
 		cleanup = _utftp_server_free;
 	}
-/*	else if (strcmp(operation, "get") == 0 || or strcmp(operation, "put") == 0) {
+	else if (strcmp(operation, "get") == 0 || strcmp(operation, "put") == 0) {
+		if (argc < 2) {
+			fprintf(stderr, "usage: (get|put) host filaname\n");
+			goto cleanup_base;
+		}
+
+		struct hostent *ent = gethostbyname(argv[0]);
+		if (!ent) {
+			fprintf(stderr, "gethostbyname failed: %s\n", strerror(errno));
+			goto cleanup_base;
+		}
+
+		if (!ent->h_addr_list[0]) {
+			fprintf(stderr, "gethostbyname returned an empty list\n");
+			goto cleanup_base;
+		}
+
+		struct sockaddr_storage addr;
+		memset(&addr, 0, sizeof(addr));
+
+		addr.ss_family = ent->h_addrtype;
+
+		switch (addr.ss_family) {
+		case AF_INET: ;
+			struct sockaddr_in *sin = (struct sockaddr_in* ) &addr;
+			memcpy(&sin->sin_addr, ent->h_addr_list[0], sizeof(sin->sin_addr));
+			sin->sin_port = htons(port);
+			break;
+		case AF_INET6: ;
+			struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) &addr;
+			memcpy(&sin6->sin6_addr, ent->h_addr_list[0], sizeof(sin6->sin6_addr));
+			sin6->sin6_port = htons(port);
+			break;
+		default:
+			fprintf(stderr, "unknown address family: %d", addr.ss_family);
+			goto cleanup_base;
+		}
+
+		file_context_t *fc = malloc(sizeof(file_context_t));
+
+		const char *file = argv[1];
+
+		// TODO windows?
+		const char *local_file = rindex(file, '/');
+		if (!local_file)
+			local_file = file;
+
+		bool writing = strcmp(operation, "get") == 0;
+		// TODO when receiving, maybe only open file when the first block arrives
+		fc->fd = open(local_file, file_flags(writing), S_IRUSR | S_IWUSR);
+		if (fc->fd == -1) {
+			fprintf(stderr, "file \"%s\" can't be opened for %s: %s\n", local_file, writing ? "writing" : "reading", strerror(errno));
+			free(fc);
+			goto cleanup_base;
+		}
+
+		utftp_client_t *c = utftp_client_new((struct sockaddr *) &addr, sizeof(addr), error_cb, file_context_free, fc);
+		if (!c) {
+			close(fc->fd);
+			free(fc);
+			goto cleanup_base;
+		}
+
 		actor = c;
 		cleanup = _utftp_client_free;
-	} */
+
+		if (writing) {
+			if (!utftp_client_read(c, base, UTFTP_MODE_OCTET, file, receive_block_cb, get_block_size(), get_timeout(), _file_context_tsize_cb))
+				goto cleanup_actor;
+		}
+		else {
+			size_t _tsize;
+			size_t *tsize = &_tsize;
+
+			struct stat s;
+			if (fstat(fc->fd, &s) != -1) {
+				*tsize = s.st_size;
+			}
+			else {
+				fprintf(stderr, "fstat failed for %s\n", file);
+				tsize = NULL;
+			}
+
+			if (!utftp_client_write(c, base, UTFTP_MODE_OCTET, file, send_block_cb, get_block_size(), get_timeout(), tsize))
+				goto cleanup_actor;
+		}
+	}
 	else {
 		fprintf(stderr, "unknown operation \"%s\"\n", operation);
 		return EXIT_FAILURE;
@@ -378,6 +560,7 @@ int main(int argc, char *argv[])
 
 	event_free(sig_event);
 
+cleanup_actor:
 	cleanup(actor);
 
 cleanup_base:
