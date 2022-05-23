@@ -137,6 +137,12 @@ void utftp_transmission_receive_cb(utftp_transmission_t *t, const transmission_i
 	uint16_t op = ntohs(*(uint16_t *) pos);
 	pos = pos + sizeof(op);
 
+	if (op == TFTP_OP_ERROR) {
+		cbs->cleanup_cb(t, t->internal_ctx);
+		utftp_transmission_free(t);
+		return;
+	}
+
 	if (op != TFTP_OP_DATA) {
 		utftp_internal_send_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_ILLEGAL_OP, "illegal operation");
 		return;
@@ -198,6 +204,12 @@ void utftp_transmission_send_cb(utftp_transmission_t *t, const transmission_inte
 
 	uint16_t op = ntohs(*(uint16_t *) buf);
 	uint8_t *pos = buf + sizeof(op);
+
+	if (op == TFTP_OP_ERROR) {
+		cbs->cleanup_cb(t, t->internal_ctx);
+		utftp_transmission_free(t);
+		return;
+	}
 
 	if (op != TFTP_OP_ACK) {
 		utftp_internal_send_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_ILLEGAL_OP, "illegal operation");

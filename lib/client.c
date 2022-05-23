@@ -274,6 +274,8 @@ static void first_read_cb(utftp_client_t *c, utftp_transmission_t *t, transmissi
 		break;
 	case TFTP_OP_ERROR:
 		utftp_handle_remote_error((struct sockaddr *) &peer, peer_len, pos, remaining(buf, rlen, pos), c->error_cb, t->ctx);
+		utftp_transmission_free(t);
+		c->t = NULL;
 		break;
 	default:
 		return;
