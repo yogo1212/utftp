@@ -37,70 +37,62 @@ static void server_error_cb(const struct sockaddr *peer, socklen_t peer_len, boo
 		s->error_cb(peer, peer_len, remote, error_code, error_string, s->ctx);
 }
 
+static void server_peer_read(utftp_server_t *s, utftp_transmission_t *t, bool timeout, bool receiving)
+{
+	if (timeout) {
+		if (t->last_progress < time(NULL) - 300) {
+			if (!t->complete)
+				utftp_handle_local_error(t->fd, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "transaction timed out", s->error_cb, s->ctx);
+
+			HASH_DEL(s->transmissions, t);
+			utftp_transmission_free(t);
+			return;
+		}
+
+		// TODO return values
+		if (receiving)
+			utftp_proto_send_ack(t->fd, (struct sockaddr *) &t->peer, t->peer_len, t->previous_block);
+		else
+			utftp_proto_send_block(t->fd, (struct sockaddr *) &t->peer, t->peer_len, t->previous_block, t->buf, t->block_size);
+
+		return;
+	}
+
+	transmission_internal_cbs_t server_cbs = {
+		delete_server_transmission,
+		server_error_cb,
+	};
+
+	if (receiving)
+		utftp_transmission_receive_cb(t, &server_cbs);
+	else
+		utftp_transmission_send_cb(t, &server_cbs);
+}
+
 static void server_peer_write_cb(evutil_socket_t fd, short what, void *ctx)
 {
 	(void) fd;
 
+	if (what == 0)
+		return;
+
 	utftp_transmission_t *t = ctx;
 	utftp_server_t *s = t->internal_ctx;
 
-	if (!(what & EV_READ)) {
-		if (what & EV_TIMEOUT) {
-			if (t->expire_at < time(NULL)) {
-				if (!t->last_block)
-					utftp_handle_local_error(t->fd, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "transaction timed out", s->error_cb, s->ctx);
-
-				HASH_DEL(s->transmissions, t);
-				utftp_transmission_free(t);
-				return;
-			}
-
-			// TODO return value
-			utftp_proto_send_ack(t->fd, (struct sockaddr *) &t->peer, t->peer_len, t->previous_block);
-		}
-
-		return;
-	}
-
-	transmission_internal_cbs_t server_cbs = {
-		delete_server_transmission,
-		server_error_cb,
-	};
-
-	utftp_transmission_receive_cb(t, &server_cbs);
+	server_peer_read(s, t, !(what & EV_READ), false);
 }
 
-static void server_peer_read_cb(evutil_socket_t fd, short what, void *ctx)
+static void server_peer_receive_cb(evutil_socket_t fd, short what, void *ctx)
 {
 	(void) fd;
 
+	if (what == 0)
+		return;
+
 	utftp_transmission_t *t = ctx;
 	utftp_server_t *s = t->internal_ctx;
 
-	if (!(what & EV_READ)) {
-		if (what & EV_TIMEOUT) {
-			if (t->expire_at < time(NULL)) {
-				if (!t->last_block)
-					utftp_handle_local_error(t->fd, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "transaction timed out", s->error_cb, s->ctx);
-
-				HASH_DEL(s->transmissions, t);
-				utftp_transmission_free(t);
-				return;
-			}
-
-			// TODO return value
-			utftp_proto_send_block(t->fd, (struct sockaddr *) &t->peer, t->peer_len, t->previous_block, t->buf, t->block_size);
-		}
-
-		return;
-	}
-
-	transmission_internal_cbs_t server_cbs = {
-		delete_server_transmission,
-		server_error_cb,
-	};
-
-	utftp_transmission_send_cb(t, &server_cbs);
+	server_peer_read(s, t, !(what & EV_READ), true);
 }
 
 static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
@@ -241,7 +233,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 		goto cleanup_t;
 	}
 
-	if (!utftp_transmission_start(t, event_get_base(s->evt), op == TFTP_OP_WRITE ? server_peer_write_cb : server_peer_read_cb)) {
+	if (!utftp_transmission_start(t, event_get_base(s->evt), op == TFTP_OP_WRITE ? server_peer_write_cb : server_peer_receive_cb)) {
 		utftp_handle_local_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "couldn't start transmission", s->error_cb, s->ctx);
 		goto cleanup_t;
 	}

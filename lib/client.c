@@ -7,6 +7,8 @@ struct utftp_client {
 	utftp_transmission_t *t;
 	utftp_error_cb error_cb;
 
+	bool sending;
+
 	// called when the tsize option is acked - can be NULL
 	utftp_tsize_cb tsize_cb;
 
@@ -50,7 +52,7 @@ static void _clear_transmission(utftp_transmission_t *t, void *ctx)
 	c->t = NULL;
 }
 
-static void client_handle_oack(utftp_transmission_t *t, const char *buf, size_t len, bool sending)
+static void client_handle_oack(utftp_transmission_t *t, const char *buf, size_t len)
 {
 	utftp_client_t *c = t->internal_ctx;
 
@@ -109,8 +111,13 @@ static void client_handle_oack(utftp_transmission_t *t, const char *buf, size_t 
 	}
 
 	// TODO return values
-	if (sending) {
-		utftp_transmission_fetch_next_block(t);
+	if (c->sending) {
+		if (!utftp_transmission_fetch_next_block(t)) {
+			utftp_transmission_free(t);
+			c->t = NULL;
+			return;
+		}
+
 		utftp_proto_send_block(t->fd, (struct sockaddr *) &t->peer, t->peer_len, t->previous_block, t->buf, t->block_size);
 	}
 	else {
@@ -118,11 +125,77 @@ static void client_handle_oack(utftp_transmission_t *t, const char *buf, size_t 
 	}
 }
 
+// returns true if the transaction should continue
+static bool client_timeout_event(utftp_client_t *c, utftp_transmission_t *t)
+{
+	if (t->complete) {
+		if (!c->sending) {
+			// server might not have received last ack - give it a few more tries
+			if (t->last_progress > time(NULL) - (t->timeout * 2))
+				goto send;
+		}
+
+		return false;
+	}
+
+	if (t->last_progress < time(NULL) - 300) {
+		utftp_handle_local_error(t->fd, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "transaction timed out", c->error_cb, t->ctx);
+		return false;
+	}
+
+send:
+	// TODO return values
+	if (t->previous_block == 0)
+		utftp_transmission_send_raw_buf(t);
+	else if (!c->sending)
+		utftp_proto_send_ack(t->fd, (struct sockaddr *) &t->peer, t->peer_len, t->previous_block);
+	else if (c->sending)
+		utftp_proto_send_block(t->fd, (struct sockaddr *) &t->peer, t->peer_len, t->previous_block, t->buf, t->block_size);
+
+	return true;
+}
+
+static void client_read_cb(evutil_socket_t fd, short what, void *ctx)
+{
+	(void) fd;
+
+	utftp_transmission_t *t = ctx;
+	utftp_client_t *c = t->internal_ctx;
+
+	if (!(what & EV_READ)) {
+		if (!(what & EV_TIMEOUT))
+			return;
+
+		if (!client_timeout_event(c, t)) {
+			utftp_transmission_free(t);
+			c->t = NULL;
+		}
+
+		return;
+	}
+
+	transmission_internal_cbs_t client_cbs = {
+		_clear_transmission,
+		c->error_cb,
+	};
+
+	// TODO check if null
+	c->read_cb(c, t, &client_cbs);
+	return;
+}
+
 static void _utftp_transmission_receive_cb(utftp_client_t *c, utftp_transmission_t *t, transmission_internal_cbs_t *cbs)
 {
 	(void) c;
 
 	utftp_transmission_receive_cb(t, cbs);
+}
+
+static void _utftp_transmission_send_cb(utftp_client_t *c, utftp_transmission_t *t, transmission_internal_cbs_t *cbs)
+{
+	(void) c;
+
+	utftp_transmission_send_cb(t, cbs);
 }
 
 static void first_read_cb(utftp_client_t *c, utftp_transmission_t *t, transmission_internal_cbs_t *cbs)
@@ -147,6 +220,9 @@ static void first_read_cb(utftp_client_t *c, utftp_transmission_t *t, transmissi
 	uint16_t op = ntohs(*(uint16_t *) buf);
 	uint8_t *pos = buf + sizeof(uint16_t);
 
+	// TODO parse block_num in the corresponding transaction handler func - remove parameter
+	uint16_t block_num;
+
 	switch (op) {
 	case TFTP_OP_OACK:
 		if (c->option_mask == 0) {
@@ -160,16 +236,19 @@ static void first_read_cb(utftp_client_t *c, utftp_transmission_t *t, transmissi
 		t->timeout = UTFTP_DEFAULT_TIMEOUT;
 		t->block_size = UTFTP_DEFAULT_BLOCK_SIZE;
 
-		client_handle_oack(t, (const char *) pos, remaining(buf, rlen, pos), false);
+		client_handle_oack(t, (const char *) pos, remaining(buf, rlen, pos));
 		break;
 	case TFTP_OP_DATA:
+		if (c->sending)
+			return;
+
 		memcpy(&t->peer, &peer, peer_len);
 		t->peer_len = peer_len;
 
 		t->timeout = UTFTP_DEFAULT_TIMEOUT;
 		t->block_size = UTFTP_DEFAULT_BLOCK_SIZE;
 
-		uint16_t block_num = ntohs(*(uint16_t *) pos);
+		block_num = ntohs(*(uint16_t *) pos);
 		pos = pos + sizeof(uint16_t);
 		if (block_num != 1) {
 			// TODO dedup!!!
@@ -179,51 +258,34 @@ static void first_read_cb(utftp_client_t *c, utftp_transmission_t *t, transmissi
 
 		utftp_transmission_handle_data(t, block_num, pos, remaining(buf, rlen, pos), cbs);
 		break;
+	case TFTP_OP_ACK:
+		if (!c->sending)
+			return;
+
+		memcpy(&t->peer, &peer, peer_len);
+		t->peer_len = peer_len;
+
+		t->timeout = UTFTP_DEFAULT_TIMEOUT;
+		t->block_size = UTFTP_DEFAULT_BLOCK_SIZE;
+
+		block_num = ntohs(*(uint16_t *) pos);
+		// TODO return value
+		utftp_transmission_handle_ack(t, block_num, cbs);
+		break;
 	case TFTP_OP_ERROR:
 		utftp_handle_remote_error((struct sockaddr *) &peer, peer_len, pos, remaining(buf, rlen, pos), c->error_cb, t->ctx);
 		break;
-	}
-
-	c->read_cb = _utftp_transmission_receive_cb;
-}
-
-static void client_read_cb(evutil_socket_t fd, short what, void *ctx)
-{
-	(void) fd;
-
-	utftp_transmission_t *t = ctx;
-	utftp_client_t *c = t->internal_ctx;
-
-	if (!(what & EV_READ)) {
-		if (what & EV_TIMEOUT) {
-			if (t->expire_at < time(NULL)) {
-				if (!t->last_block)
-					utftp_handle_local_error(t->fd, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "transaction timed out", c->error_cb, t->ctx);
-
-				c->t = NULL;
-				utftp_transmission_free(t);
-				return;
-			}
-
-			// TODO return values
-			if (t->previous_block == 0)
-				utftp_transmission_send_raw_buf(t);
-			else
-				utftp_proto_send_ack(t->fd, (struct sockaddr *) &t->peer, t->peer_len, t->previous_block);
-    }
+	default:
 		return;
 	}
 
-	transmission_internal_cbs_t client_cbs = {
-		_clear_transmission,
-		c->error_cb,
-	};
-
-	// TODO check if null
-	c->read_cb(c, t, &client_cbs);
+	if (c->sending)
+		c->read_cb = _utftp_transmission_send_cb;
+	else
+		c->read_cb = _utftp_transmission_receive_cb;
 }
 
-bool utftp_client_read(utftp_client_t *c, struct event_base *base, utftp_mode_t mode, const char *file, utftp_next_block_cb data_cb, uint16_t *block_size, uint8_t *timeout, utftp_tsize_cb tsize_cb)
+bool utftp_client_receive(utftp_client_t *c, struct event_base *base, utftp_mode_t mode, const char *file, utftp_next_block_cb data_cb, uint16_t *block_size, uint8_t *timeout, utftp_tsize_cb tsize_cb)
 {
 	utftp_transmission_t *t = c->t;
 
@@ -233,6 +295,7 @@ bool utftp_client_read(utftp_client_t *c, struct event_base *base, utftp_mode_t 
 	}
 
 	t->data_cb = data_cb;
+	c->sending = false;
 
 	if (!utftp_transmission_start(t, base, client_read_cb)) {
 		utftp_handle_local_error(-1, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "failed to start transmission", c->error_cb, t->ctx);
@@ -299,106 +362,7 @@ bool utftp_client_read(utftp_client_t *c, struct event_base *base, utftp_mode_t 
 	return true;
 }
 
-static void _utftp_transmission_send_cb(utftp_client_t *c, utftp_transmission_t *t, transmission_internal_cbs_t *cbs)
-{
-	(void) c;
-
-	utftp_transmission_send_cb(t, cbs);
-}
-
-static void first_write_cb(utftp_client_t *c, utftp_transmission_t *t, transmission_internal_cbs_t *cbs)
-{
-	uint8_t buf[MAX_BLOCK_SIZE + 4];
-
-	struct sockaddr_storage peer;
-	socklen_t peer_len = sizeof(peer);
-	ssize_t rlen = recvfrom(t->fd, buf, sizeof(buf), 0, (struct sockaddr *) &peer, &peer_len);
-	if (rlen == -1) {
-		if (errno != EAGAIN && errno != EWOULDBLOCK)
-			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, strerror(errno), c->error_cb, t->ctx);
-
-		return;
-	}
-
-	if (peer_len > sizeof(t->peer)) {
-		utftp_handle_local_error(-1, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "peer address too large", c->error_cb, t->ctx);
-		return;
-	}
-
-	uint16_t op = ntohs(*(uint16_t *) buf);
-	uint8_t *pos = buf + sizeof(uint16_t);
-
-	switch (op) {
-	case TFTP_OP_OACK:
-		if (c->option_mask == 0) {
-			utftp_handle_local_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "received OACK having sent no options", c->error_cb, t->ctx);
-			return;
-		}
-
-		memcpy(&t->peer, &peer, peer_len);
-		t->peer_len = peer_len;
-
-		t->timeout = UTFTP_DEFAULT_TIMEOUT;
-		t->block_size = UTFTP_DEFAULT_BLOCK_SIZE;
-
-		client_handle_oack(t, (const char *) pos, remaining(buf, rlen, pos), false);
-		break;
-	case TFTP_OP_ACK:
-		memcpy(&t->peer, &peer, peer_len);
-		t->peer_len = peer_len;
-
-		t->timeout = UTFTP_DEFAULT_TIMEOUT;
-		t->block_size = UTFTP_DEFAULT_BLOCK_SIZE;
-
-		uint16_t block_num = ntohs(*(uint16_t *) pos);
-		// TODO return value
-		utftp_transmission_handle_ack(t, block_num, cbs);
-		break;
-	case TFTP_OP_ERROR:
-		utftp_handle_remote_error((struct sockaddr *) &peer, peer_len, pos, remaining(buf, rlen, pos), c->error_cb, t->ctx);
-		break;
-	}
-
-	c->read_cb = _utftp_transmission_send_cb;
-}
-
-static void client_write_cb(evutil_socket_t fd, short what, void *ctx)
-{
-	(void) fd;
-
-	utftp_transmission_t *t = ctx;
-	utftp_client_t *c = t->internal_ctx;
-
-	if (!(what & EV_READ)) {
-		if (what & EV_TIMEOUT) {
-			if (t->expire_at < time(NULL)) {
-				if (!t->last_block)
-					utftp_handle_local_error(t->fd, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "transaction timed out", c->error_cb, t->ctx);
-
-				c->t = NULL;
-				utftp_transmission_free(t);
-				return;
-			}
-
-			// TODO return values
-			if (t->previous_block == 0)
-				utftp_transmission_send_raw_buf(t);
-			else
-				utftp_proto_send_ack(t->fd, (struct sockaddr *) &t->peer, t->peer_len, t->previous_block);
-    }
-		return;
-	}
-
-	transmission_internal_cbs_t client_cbs = {
-		_clear_transmission,
-		c->error_cb,
-	};
-
-	// TODO check if null
-	c->read_cb(c, t, &client_cbs);
-}
-
-bool utftp_client_write(utftp_client_t *c, struct event_base *base, utftp_mode_t mode, const char *file, utftp_next_block_cb data_cb, uint16_t *block_size, uint8_t *timeout, size_t *tsize)
+bool utftp_client_send(utftp_client_t *c, struct event_base *base, utftp_mode_t mode, const char *file, utftp_next_block_cb data_cb, uint16_t *block_size, uint8_t *timeout, size_t *tsize)
 {
 	utftp_transmission_t *t = c->t;
 
@@ -408,8 +372,9 @@ bool utftp_client_write(utftp_client_t *c, struct event_base *base, utftp_mode_t
 	}
 
 	t->data_cb = data_cb;
+	c->sending = true;
 
-	if (!utftp_transmission_start(t, base, client_write_cb)) {
+	if (!utftp_transmission_start(t, base, client_read_cb)) {
 		utftp_handle_local_error(-1, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "failed to start transmission", c->error_cb, t->ctx);
 		return false;
 	}
@@ -463,7 +428,7 @@ bool utftp_client_write(utftp_client_t *c, struct event_base *base, utftp_mode_t
 	}
 
 	t->block_size = (ptrdiff_t) pos - (ptrdiff_t) t->buf;
-	c->read_cb = first_write_cb;
+	c->read_cb = first_read_cb;
 
 	if (!utftp_transmission_send_raw_buf(t)) {
 		utftp_handle_local_error(-1, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "failed to send read request", c->error_cb, t->ctx);

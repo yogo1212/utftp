@@ -70,8 +70,8 @@ typedef void (*utftp_tsize_cb)(size_t tsize, void *ctx);
  * tsize_cb can be NULL and will only be called if there's an OACK response containing tsize.
  * use only one ;-)
  */
-bool utftp_client_read(utftp_client_t *c, struct event_base *base, utftp_mode_t mode, const char *file, utftp_next_block_cb data_cb, uint16_t *block_size, uint8_t *timeout, utftp_tsize_cb tsize_cb);
-bool utftp_client_write(utftp_client_t *c, struct event_base *base, utftp_mode_t mode, const char *file, utftp_next_block_cb data_cb, uint16_t *block_size, uint8_t *timeout, size_t *tsize);
+bool utftp_client_receive(utftp_client_t *c, struct event_base *base, utftp_mode_t mode, const char *file, utftp_next_block_cb data_cb, uint16_t *block_size, uint8_t *timeout, utftp_tsize_cb tsize_cb);
+bool utftp_client_send(utftp_client_t *c, struct event_base *base, utftp_mode_t mode, const char *file, utftp_next_block_cb data_cb, uint16_t *block_size, uint8_t *timeout, size_t *tsize);
 
 /*
  * if the request included the tsize option, *tsize points to the supplied value.

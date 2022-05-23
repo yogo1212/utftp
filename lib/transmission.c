@@ -29,7 +29,7 @@ bool utftp_transmission_fetch_next_block(utftp_transmission_t *t)
 
 	if (s < t->block_size) {
 		t->block_size = s;
-		t->last_block = true;
+		t->data_cb = NULL;
 	}
 
 	t->previous_block = t->previous_block + 1;
@@ -59,20 +59,18 @@ bool utftp_transmission_send_raw_buf(utftp_transmission_t *t)
 	return sendto(t->fd, t->buf, t->block_size, 0, (struct sockaddr *) &t->peer, t->peer_len) == t->block_size;
 }
 
-void utftp_transmission_set_expiration(utftp_transmission_t *t)
-{
-	t->expire_at = time(NULL) + 300;
-}
-
 void utftp_transmission_complete_transaction(utftp_transmission_t *t)
 {
+	if (t->complete)
+		return;
+
+	t->complete = true;
+
 	if (t->cleanup_cb) {
-		t->cleanup_cb(t, t->last_block, t->ctx);
+		t->cleanup_cb(t, t->complete, t->ctx);
 		t->cleanup_cb = NULL;
 		t->ctx = NULL;
 	}
-
-	utftp_transmission_set_expiration(t);
 
 	struct timeval tv = { 300 + 1, 0 };
 	event_add(t->evt, &tv);
@@ -91,13 +89,13 @@ void utftp_transmission_handle_data(utftp_transmission_t *t, uint16_t block_num,
 	if (block_num == t->previous_block)
 		goto send_ack;
 
-	t->last_block = data_len != t->block_size;
-
 	t->data_cb(t, data, data_len);
 
 	t->previous_block = t->previous_block + 1;
 
-	if (t->last_block) {
+	t->last_progress = time(NULL);
+
+	if (data_len != t->block_size) {
 		utftp_transmission_complete_transaction(t);
 		goto send_ack;
 	}
@@ -107,8 +105,6 @@ void utftp_transmission_handle_data(utftp_transmission_t *t, uint16_t block_num,
 		utftp_transmission_free(t);
 		return;
 	}
-
-	utftp_transmission_set_expiration(t);
 
 	struct timeval tv = { t->timeout, 0 };
 	event_add(t->evt, &tv);
@@ -162,7 +158,9 @@ bool utftp_transmission_handle_ack(utftp_transmission_t *t, uint16_t block_num, 
 		return false;
 	}
 
-	if (t->last_block) {
+	t->last_progress = time(NULL);
+
+	if (!t->data_cb) {
 		utftp_transmission_complete_transaction(t);
 		return true;
 	}
@@ -172,8 +170,6 @@ bool utftp_transmission_handle_ack(utftp_transmission_t *t, uint16_t block_num, 
 		utftp_transmission_free(t);
 		return false;
 	}
-
-	utftp_transmission_set_expiration(t);
 
 	struct timeval tv = { t->timeout, 0 };
 	event_add(t->evt, &tv);
@@ -216,7 +212,7 @@ void utftp_transmission_send_cb(utftp_transmission_t *t, const transmission_inte
 
 bool utftp_transmission_start(utftp_transmission_t *t, struct event_base *base, event_callback_fn cb)
 {
-	utftp_transmission_set_expiration(t);
+	t->last_progress = time(NULL);
 
 	t->evt = event_new(base, t->fd, EV_READ | EV_TIMEOUT | EV_PERSIST, cb, t);
 	if (!t->evt) {
@@ -249,7 +245,7 @@ utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, sockle
 	}
 
 	t->previous_block = 0;
-	t->last_block = false;
+	t->complete = false;
 	t->sent_error = false;
 
 	t->evt = NULL;

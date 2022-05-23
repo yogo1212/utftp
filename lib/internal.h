@@ -27,14 +27,16 @@ struct utftp_transmission {
 
 	bool sent_error;
 
-	time_t expire_at;
+	time_t last_progress;
   uint8_t timeout;
 
 	uint8_t buf[MAX_BLOCK_SIZE];
   uint16_t block_size;
   uint16_t previous_block;
-	bool last_block;
+	// received the last ack or write
+	bool complete;
 
+	// callback to either fetch or deliver data - NULL indicates there's no more data
   utftp_next_block_cb data_cb;
 
 	utftp_ctx_cleanup_cb cleanup_cb;
@@ -62,7 +64,6 @@ bool utftp_transmission_start(utftp_transmission_t *t, struct event_base *base, 
 void utftp_transmission_free(utftp_transmission_t *t);
 
 bool utftp_transmission_fetch_next_block(utftp_transmission_t *t);
-void utftp_transmission_set_expiration(utftp_transmission_t *t);
 void utftp_transmission_complete_transaction(utftp_transmission_t *t);
 bool utftp_transmission_send_raw_buf(utftp_transmission_t *t);
 

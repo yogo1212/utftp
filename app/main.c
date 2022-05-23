@@ -509,11 +509,11 @@ int main(int argc, char *argv[])
 		if (!local_file)
 			local_file = file;
 
-		bool writing = strcmp(operation, "get") == 0;
+		bool receiving = strcmp(operation, "get") == 0;
 		// TODO when receiving, maybe only open file when the first block arrives
-		fc->fd = open(local_file, file_flags(writing), S_IRUSR | S_IWUSR);
+		fc->fd = open(local_file, file_flags(receiving), S_IRUSR | S_IWUSR);
 		if (fc->fd == -1) {
-			fprintf(stderr, "file \"%s\" can't be opened for %s: %s\n", local_file, writing ? "writing" : "reading", strerror(errno));
+			fprintf(stderr, "file \"%s\" can't be opened for %s: %s\n", local_file, receiving ? "writing" : "reading", strerror(errno));
 			free(fc);
 			goto cleanup_base;
 		}
@@ -528,8 +528,8 @@ int main(int argc, char *argv[])
 		actor = c;
 		cleanup = _utftp_client_free;
 
-		if (writing) {
-			if (!utftp_client_read(c, base, UTFTP_MODE_OCTET, file, receive_block_cb, get_block_size(), get_timeout(), _file_context_tsize_cb))
+		if (receiving) {
+			if (!utftp_client_receive(c, base, UTFTP_MODE_OCTET, file, receive_block_cb, get_block_size(), get_timeout(), _file_context_tsize_cb))
 				goto cleanup_actor;
 		}
 		else {
@@ -545,7 +545,7 @@ int main(int argc, char *argv[])
 				tsize = NULL;
 			}
 
-			if (!utftp_client_write(c, base, UTFTP_MODE_OCTET, file, send_block_cb, get_block_size(), get_timeout(), tsize))
+			if (!utftp_client_send(c, base, UTFTP_MODE_OCTET, file, send_block_cb, get_block_size(), get_timeout(), tsize))
 				goto cleanup_actor;
 		}
 	}
