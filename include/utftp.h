@@ -7,6 +7,9 @@
 #define UTFTP_DEFAULT_PORT 69
 #define UTFTP_DEFAULT_BLOCK_SIZE 512
 
+/* number of timeouts to wait after receiving a file for the other side to hear the ACK */
+#define UTFTP_LINGER_TIMEOUTS 1
+
 /*
  * all sockaddresses passed to and from utftp should be in network byte order.
  */

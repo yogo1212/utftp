@@ -59,7 +59,7 @@ bool utftp_transmission_send_raw_buf(utftp_transmission_t *t)
 	return sendto(t->fd, t->buf, t->block_size, 0, (struct sockaddr *) &t->peer, t->peer_len) == t->block_size;
 }
 
-void utftp_transmission_complete_transaction(utftp_transmission_t *t)
+static void utftp_transmission_complete_transaction(utftp_transmission_t *t, uint8_t linger_count)
 {
 	if (t->complete)
 		return;
@@ -72,7 +72,7 @@ void utftp_transmission_complete_transaction(utftp_transmission_t *t)
 		t->ctx = NULL;
 	}
 
-	struct timeval tv = { 300 + 1, 0 };
+	struct timeval tv = { t->timeout * linger_count + 1, 0 };
 	event_add(t->evt, &tv);
 }
 
@@ -96,7 +96,7 @@ void utftp_transmission_handle_data(utftp_transmission_t *t, uint16_t block_num,
 	t->last_progress = time(NULL);
 
 	if (data_len != t->block_size) {
-		utftp_transmission_complete_transaction(t);
+		utftp_transmission_complete_transaction(t, UTFTP_LINGER_TIMEOUTS);
 		goto send_ack;
 	}
 
@@ -161,7 +161,7 @@ bool utftp_transmission_handle_ack(utftp_transmission_t *t, uint16_t block_num, 
 	t->last_progress = time(NULL);
 
 	if (!t->data_cb) {
-		utftp_transmission_complete_transaction(t);
+		utftp_transmission_complete_transaction(t, 0);
 		return true;
 	}
 

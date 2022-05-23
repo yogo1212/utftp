@@ -64,7 +64,6 @@ bool utftp_transmission_start(utftp_transmission_t *t, struct event_base *base, 
 void utftp_transmission_free(utftp_transmission_t *t);
 
 bool utftp_transmission_fetch_next_block(utftp_transmission_t *t);
-void utftp_transmission_complete_transaction(utftp_transmission_t *t);
 bool utftp_transmission_send_raw_buf(utftp_transmission_t *t);
 
 bool utftp_transmission_send_raw_buf(utftp_transmission_t *t);
