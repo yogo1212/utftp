@@ -69,7 +69,7 @@ static void server_peer_read(utftp_server_t *s, utftp_transmission_t *t, bool ti
 		utftp_transmission_send_cb(t, &server_cbs);
 }
 
-static void server_peer_write_cb(evutil_socket_t fd, short what, void *ctx)
+static void server_peer_send_cb(evutil_socket_t fd, short what, void *ctx)
 {
 	(void) fd;
 
@@ -233,7 +233,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 		goto cleanup_t;
 	}
 
-	if (!utftp_transmission_start(t, event_get_base(s->evt), op == TFTP_OP_WRITE ? server_peer_write_cb : server_peer_receive_cb)) {
+	if (!utftp_transmission_start(t, event_get_base(s->evt), op == TFTP_OP_WRITE ? server_peer_receive_cb : server_peer_send_cb)) {
 		utftp_handle_local_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "couldn't start transmission", s->error_cb, s->ctx);
 		goto cleanup_t;
 	}
