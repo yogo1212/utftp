@@ -24,7 +24,7 @@ void utftp_internal_send_error(int fd, const struct sockaddr *peer, socklen_t pe
 	pos = pos + 1;
 
 	// ignoring errors here
-	sendto(fd, buf, (ptrdiff_t) pos - (ptrdiff_t) buf, 0, (struct sockaddr *) &peer, peer_len);
+	sendto(fd, buf, (ptrdiff_t) pos - (ptrdiff_t) buf, 0, peer, peer_len);
 }
 
 void utftp_normalise_mapped_ipv4(struct sockaddr *s, socklen_t *len)
