@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 #include "internal.h"
 
 void utftp_internal_send_error(int fd, const struct sockaddr *peer, socklen_t peer_len, utftp_errcode_t error_code, const char *error_string)
@@ -75,12 +74,16 @@ void utftp_handle_local_error(int fd, const struct sockaddr *peer, socklen_t pee
 void utftp_handle_remote_error(const struct sockaddr *peer, socklen_t peer_len, const uint8_t *buf, size_t buf_len, utftp_error_cb error_cb, void *ctx)
 {
 	utftp_errcode_t error_code = ntohs(*((uint16_t *) buf));
-	const char *error_string = (char *) buf + sizeof(uint16_t);
 
-	size_t rem = remaining(buf, buf_len, error_string);
-	if (strnlen(error_string, rem) == rem) {
-		// TODO log message truncating error message
-		error_string = strndupa(error_string, rem);
+	const char *error_string = (char *) buf + sizeof(uint16_t);
+	size_t len = buf_len - sizeof(uint16_t);
+
+	if (strnlen(error_string, len) == len) {
+		// TODO log message about having truncated error message
+		char zt_error_buf[len + 1];
+		memcpy(zt_error_buf, error_string, len);
+		zt_error_buf[len] = '\0';
+		error_string = zt_error_buf;
 	}
 
 	call_error_cb(peer, peer_len, true, error_code, error_string, error_cb, ctx);
