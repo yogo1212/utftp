@@ -10,8 +10,6 @@
 #include <unistd.h>
 #include <utftp.h>
 
-#include "net_util.h"
-
 static void handle_sigint(evutil_socket_t fd, short what, void *ctx)
 {
 	(void) fd;
@@ -126,11 +124,67 @@ static bool set_listen_addr(struct in6_addr *a)
 	return true;
 }
 
+#define PRINT_SOCKADDR_BUF_SIZE (INET6_ADDRSTRLEN + 8 + 1)
+
+/*
+ * print a string representation in the form of address + ':' + port into buf
+ * PRINT_SOCKADDR_BUF_SIZE is a buffer size that is considered big enough for use with print_sockaddr
+ */
+static bool print_sockaddr(const struct sockaddr *s, socklen_t len, char *buf, size_t buf_len)
+{
+	void *a;
+
+	uint16_t port;
+
+	if (s->sa_family == AF_INET) {
+		if (len < sizeof(struct sockaddr_in)) {
+			fprintf(stderr, "short sockaddr\n");
+			return false;
+		}
+
+		struct sockaddr_in *sin = (struct sockaddr_in *) s;
+		a = &sin->sin_addr;
+		port = ntohs(sin->sin_port);
+	} else if (s->sa_family == AF_INET6) {
+		if (len < sizeof(struct sockaddr_in6)) {
+			fprintf(stderr, "short sockaddr\n");
+			return false;
+		}
+
+		struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) s;
+		a = &sin6->sin6_addr;
+		port = ntohs(sin6->sin6_port);
+	} else {
+		fprintf(stderr, "unknown address family: %u\n", (unsigned int) s->sa_family);
+		return false;
+	}
+
+	if (!inet_ntop(s->sa_family, a, buf, buf_len)) {
+		fprintf(stderr, "error printing address: %s\n", strerror(errno));
+		return false;
+	}
+
+	buf[sizeof(buf) - 1] = '\0';
+	char *pos = &buf[strlen(buf)];
+
+	ssize_t rem = buf_len - (pos - buf);
+	if (snprintf(pos, rem, " : %" PRIu16, port) >= rem) {
+		fprintf(stderr, "port truncated\n");
+		return false;
+	}
+
+	return true;
+}
+
 static const char *display_peer(const struct sockaddr *peer, socklen_t peer_len)
 {
 	const char *addr = NULL;
-	if (peer)
-		addr = print_sockaddr(peer, peer_len);
+	if (peer) {
+		static char buf[PRINT_SOCKADDR_BUF_SIZE];
+		if (print_sockaddr(peer, peer_len, buf, sizeof(buf)))
+			addr = buf;
+	}
+
 	if (!addr)
 		return "[unknown peer]";
 
