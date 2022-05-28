@@ -9,6 +9,75 @@
 #include "proto.h"
 #include "utftp.h"
 
+/*
+ * override hash and comparison function to allow using sockaddr_storage as hash key
+ * use only the address and the port, ignore all other fields
+ */
+#undef HASH_FUNCTION
+#define HASH_FUNCTION(s,len,hashv) hash_sockaddr(s,len,&hashv)
+
+#undef HASH_KEYCMP
+#define HASH_KEYCMP(a,b,len) cmp_sockaddr(a,b,len)
+
+static int cmp_sockaddr(const struct sockaddr_storage *a, const struct sockaddr_storage *b, size_t len)
+{
+	(void) len;
+
+	if (a->ss_family != b->ss_family)
+		return 1;
+
+	switch (a->ss_family) {
+	case AF_INET: ;
+		const struct sockaddr_in *sin_a = (struct sockaddr_in *) a;
+		const struct sockaddr_in *sin_b = (struct sockaddr_in *) b;
+		if (sin_a->sin_port != sin_b->sin_port)
+			return 1;
+
+		return memcmp(&sin_a->sin_addr, &sin_b->sin_addr, sizeof(sin_a->sin_addr));
+
+		break;
+	case AF_INET6: ;
+		const struct sockaddr_in6 *sin6_a = (struct sockaddr_in6 *) a;
+		const struct sockaddr_in6 *sin6_b = (struct sockaddr_in6 *) b;
+		if (sin6_a->sin6_port != sin6_b->sin6_port)
+			return 1;
+
+		return memcmp(&sin6_a->sin6_addr, &sin6_b->sin6_addr, sizeof(sin6_a->sin6_addr));
+
+		break;
+	default:
+		fprintf(stderr, "utftp: cmp_sockaddr: unknown address family: %u\n", (unsigned) a->ss_family);
+		// don't know. never consider them equal
+		return 1;
+	}
+
+	return 0;
+}
+
+static void hash_sockaddr(const struct sockaddr_storage *s, size_t len, unsigned *hashv)
+{
+	(void) len;
+
+	unsigned addr_hashv;
+
+	switch (s->ss_family) {
+	case AF_INET: ;
+		const struct sockaddr_in *sin = (struct sockaddr_in *) s;
+		HASH_JEN(&sin->sin_addr, sizeof(sin->sin_addr), addr_hashv);
+		*hashv = addr_hashv ^ sin->sin_port;
+		break;
+	case AF_INET6: ;
+		const struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) s;
+		HASH_JEN(&sin6->sin6_addr, sizeof(sin6->sin6_addr), addr_hashv);
+		// TODO only use scope_id for loopback addresses?
+		*hashv = addr_hashv ^ sin6->sin6_port ^ sin6->sin6_scope_id;
+		break;
+	default:
+		fprintf(stderr, "utftp: hash_sockaddr: unknown address family: %u\n", (unsigned) s->ss_family);
+		*hashv = 1; // cmp never considers these equal. just return anything here.
+	}
+}
+
 struct utftp_server {
 	int fd;
 	struct event *evt;
@@ -16,6 +85,7 @@ struct utftp_server {
 	utftp_transmission_cb send_cb;
 	utftp_error_cb error_cb;
 
+	// use the normalized (ipv6-ipv4 unmapped) address + port combination as the key
 	utftp_transmission_t *transmissions;
 
 	void *ctx;
@@ -113,6 +183,15 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 		return;
 	}
 
+	utftp_normalise_mapped_ipv4((struct sockaddr *) &peer, &peer_len);
+
+	utftp_transmission_t *t;
+	HASH_FIND(hh, s->transmissions, &peer, peer_len, t);
+	if (t) {
+		// there already exists an transmission with this address + port combination
+		return;
+	}
+
 	if (rlen < 2) {
 		utftp_handle_local_error(fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "short read", s->error_cb, s->ctx);
 		return;
@@ -147,7 +226,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 
 	pos = pos + 1;
 
-	utftp_transmission_t *t = utftp_transmission_new(
+	t = utftp_transmission_new(
 		(struct sockaddr *) &peer,
 		peer_len,
 		server_error_cb,
@@ -157,7 +236,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 		return;
 	}
 
-	HASH_ADD_INT(s->transmissions, fd, t);
+	HASH_ADD(hh, s->transmissions, peer, sizeof(t->peer), t);
 
 	uint8_t option_mask;
 	size_t tsize;
@@ -230,12 +309,12 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 		if (!t->sent_error)
 			utftp_internal_send_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "internal error");
 
-		goto cleanup_t;
+		goto cleanup_t_hash;
 	}
 
 	if (!utftp_transmission_start(t, event_get_base(s->evt), op == TFTP_OP_WRITE ? server_peer_receive_cb : server_peer_send_cb)) {
 		utftp_handle_local_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, "couldn't start transmission", s->error_cb, s->ctx);
-		goto cleanup_t;
+		goto cleanup_t_hash;
 	}
 
 	if (option_mask != 0) {
@@ -248,29 +327,29 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 			option_mask & OPTION_BIT_TSIZE ? &tsize : NULL)
 		) {
 			utftp_handle_local_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("failed to send oack: %s", strerror(errno)), s->error_cb, s->ctx);
-			goto cleanup_t;
+			goto cleanup_t_hash;
 		}
 	} else {
 		if (op == TFTP_OP_READ) {
 			if (!utftp_transmission_fetch_next_block(t))
-				goto cleanup_t;
+				goto cleanup_t_hash;
 
 			if (!utftp_proto_send_block(t->fd, (struct sockaddr *) &peer, peer_len, t->previous_block, t->buf, t->block_size)) {
 				utftp_handle_local_error(-1, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("failed to send first block: %s", strerror(errno)), s->error_cb, s->ctx);
-				goto cleanup_t;
+				goto cleanup_t_hash;
 			}
 		}
 		else {
 			if (!utftp_proto_send_ack(t->fd, (struct sockaddr *) &peer, peer_len, 0)) {
 				utftp_handle_local_error(-1, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNDEFINED, sprintfa("failed to send first ack: %s", strerror(errno)), s->error_cb, s->ctx);
-				goto cleanup_t;
+				goto cleanup_t_hash;
 			}
 		}
 	}
 
 	return;
 
-cleanup_t:
+cleanup_t_hash:
 	HASH_DEL(s->transmissions, t);
 	utftp_transmission_free(t);
 }
