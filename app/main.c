@@ -164,7 +164,7 @@ static bool print_sockaddr(const struct sockaddr *s, socklen_t len, char *buf, s
 		return false;
 	}
 
-	buf[sizeof(buf) - 1] = '\0';
+	buf[buf_len - 1] = '\0';
 	char *pos = &buf[strlen(buf)];
 
 	ssize_t rem = buf_len - (pos - buf);
