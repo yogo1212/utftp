@@ -238,7 +238,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 
 	HASH_ADD(hh, s->transmissions, peer, sizeof(t->peer), t);
 
-	uint8_t option_mask;
+	uint8_t option_mask = 0;
 	size_t tsize;
 
 	const char *option = pos;
