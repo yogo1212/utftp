@@ -37,7 +37,7 @@ static bool get_port(uint16_t *port)
 		return true;
 
 	unsigned int buf;
-	if (sscanf(s, "%u", &buf) != 0) {
+	if (sscanf(s, "%u", &buf) != 1) {
 		fprintf(stderr, "couldn't parse port \"%s\"\n", s);
 		return false;
 	}
