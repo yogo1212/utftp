@@ -10,4 +10,4 @@ My aim is that it:
 - doesn't accidentally send its log output on a UDP socket
 - allows using symlinks in some way (because they can be quite useful)
 - doesn't mangle file names
-- allow finer grained control over receiving files (max. file size, don't overwrite, don't create)
+- allows finer grained control over receiving files (max. file size, don't overwrite, don't create)
