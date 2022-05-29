@@ -317,6 +317,11 @@ static utftp_next_block_cb receive_cb(utftp_transmission_t *t, utftp_mode_t mode
 {
 	(void) ctx;
 
+	if (getenv("NO_CREATE") && getenv("NO_OVERWRITE")) {
+		utftp_transmission_end_with_error(t, UTFTP_ERR_ILLEGAL_OP, "writing not allowed");
+		return NULL;
+	}
+
 	if (mode != UTFTP_MODE_OCTET) {
 		utftp_transmission_end_with_error(t, UTFTP_ERR_UNDEFINED, "unsupported mode");
 		return NULL;
@@ -554,6 +559,13 @@ int main(int argc, char *argv[])
 			goto cleanup_base;
 		}
 
+		bool receiving = strcmp(operation, "get") == 0;
+
+		if (receiving && getenv("NO_CREATE") && getenv("NO_OVERWRITE")) {
+			fprintf(stderr, "can't write to any file with NO_CREATE and NO_OVERWRITE\n");
+			goto cleanup_base;
+		}
+
 		file_context_t *fc = malloc(sizeof(file_context_t));
 
 		const char *file = argv[1];
@@ -563,7 +575,6 @@ int main(int argc, char *argv[])
 		if (!local_file)
 			local_file = file;
 
-		bool receiving = strcmp(operation, "get") == 0;
 		// TODO when receiving, maybe only open file when the first block arrives
 		fc->fd = open(local_file, file_flags(receiving), S_IRUSR | S_IWUSR);
 		if (fc->fd == -1) {
