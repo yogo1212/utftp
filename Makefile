@@ -16,7 +16,6 @@ DIRS = $(BINDIR) $(LIBOBJDIR) $(APPOBJDIR)
 
 
 CFLAGS += -std=gnu99 -pedantic -Wall -Wextra -I$(INCDIR)
-DEBUG = 1
 
 ifeq (1,$(DEBUG))
 CFLAGS += -g
