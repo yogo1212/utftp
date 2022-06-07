@@ -360,8 +360,12 @@ utftp_server_t *utftp_server_new(struct event_base *base, int fd, utftp_transmis
 	if (!s)
 		return NULL;
 
-	if (evutil_make_socket_nonblocking(fd) == -1)
+	const char *err_msg = NULL;
+
+	if (evutil_make_socket_nonblocking(fd) == -1) {
+		err_msg = sprintfa("failed to make server socket non-blocking: %s\n", strerror(errno));
 		goto cleanup_s;
+	}
 
 	s->receive_cb = receive_cb;
 	s->send_cb = send_cb;
@@ -371,8 +375,10 @@ utftp_server_t *utftp_server_new(struct event_base *base, int fd, utftp_transmis
 	s->transmissions = NULL;
 
 	s->evt = event_new(base, fd, EV_READ | EV_PERSIST, server_read_cb, s);
-	if (!s->evt)
+	if (!s->evt) {
+		err_msg = "failed to create server event";
 		goto cleanup_s;
+	}
 
 	event_add(s->evt, NULL);
 
@@ -380,6 +386,7 @@ utftp_server_t *utftp_server_new(struct event_base *base, int fd, utftp_transmis
 
 cleanup_s:
 	free(s);
+	utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, err_msg, error_cb, ctx);
 
 	return NULL;
 }
