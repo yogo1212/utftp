@@ -165,6 +165,90 @@ static void server_peer_receive_cb(evutil_socket_t fd, short what, void *ctx)
 	server_peer_read(s, t, !(what & EV_READ), true);
 }
 
+/* sets dst port to 0 */
+static ssize_t pktsock_recv(int fd, struct sockaddr *src, socklen_t *src_len, struct sockaddr *dst, socklen_t *dst_len, void *buf, size_t buf_len)
+{
+	struct msghdr msg;
+	msg.msg_flags = 0;
+
+	msg.msg_name = src;
+	msg.msg_namelen = *src_len;
+
+	struct iovec iovec[1];
+	iovec[0].iov_base = buf;
+	iovec[0].iov_len = buf_len;
+	msg.msg_iov = iovec;
+	msg.msg_iovlen = sizeof(iovec) / sizeof(*iovec);
+
+	char msg_control[1024];
+	msg.msg_control = msg_control;
+	msg.msg_controllen = sizeof(msg_control);
+
+	ssize_t rlen = recvmsg(fd, &msg, 0);
+	if (rlen <= 0)
+		return rlen;
+
+	dst->sa_family = AF_UNSPEC;
+	struct cmsghdr *cmsg;
+	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != 0; cmsg = CMSG_NXTHDR(&msg, cmsg))
+	{
+		if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_ORIGDSTADDR) {
+			if (*dst_len < sizeof(struct sockaddr_in)) {
+				errno = ENOSPC;
+				return -1;
+			}
+
+			memcpy(dst, CMSG_DATA(cmsg), sizeof(struct sockaddr_in));
+			((struct sockaddr_in *) dst)->sin_port = 0;
+			*dst_len = sizeof(struct sockaddr_in);
+
+			break;
+		}
+		else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_ORIGDSTADDR) {
+			if (*dst_len < sizeof(struct sockaddr_in6)) {
+				errno = ENOSPC;
+				return -1;
+			}
+
+			memcpy(dst, CMSG_DATA(cmsg), sizeof(struct sockaddr_in6));
+			((struct sockaddr_in6 *) dst)->sin6_port = 0;
+			*dst_len = sizeof(struct sockaddr_in6);
+
+			break;
+		}
+	}
+
+	// unsure which recvfrom implementations set msg_namelen
+	if (dst->sa_family == AF_UNSPEC) {
+		errno = EPFNOSUPPORT;
+		return -1;
+	}
+
+	switch (src->sa_family) {
+	case AF_INET:
+		if (*dst_len < sizeof(struct sockaddr_in)) {
+			errno = ENOSPC;
+			return -1;
+		}
+
+		*src_len = sizeof(struct sockaddr_in);
+		break;
+	case AF_INET6:
+		if (*dst_len < sizeof(struct sockaddr_in6)) {
+			errno = ENOSPC;
+			return -1;
+		}
+
+		*src_len = sizeof(struct sockaddr_in6);
+		break;
+	default:
+		errno = EPFNOSUPPORT;
+		return -1;
+	}
+
+	return rlen;
+}
+
 static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 {
 	(void) what;
@@ -173,9 +257,13 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 
 	char buf[MAX_BLOCK_SIZE];
 
+	struct sockaddr_storage own;
+	socklen_t own_len = sizeof(own);
+
 	struct sockaddr_storage peer;
 	socklen_t peer_len = sizeof(peer);
-	ssize_t rlen = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *) &peer, &peer_len);
+
+	ssize_t rlen = pktsock_recv(fd, (struct sockaddr *) &peer, &peer_len, (struct sockaddr *) &own, &own_len, buf, sizeof(buf));
 	if (rlen == -1) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK)
 			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, strerror(errno), s->error_cb, s->ctx);
@@ -184,6 +272,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 	}
 
 	utftp_normalise_mapped_ipv4((struct sockaddr *) &peer, &peer_len);
+	utftp_normalise_mapped_ipv4((struct sockaddr *) &own, &own_len);
 
 	utftp_transmission_t *t;
 	HASH_FIND(hh, s->transmissions, &peer, peer_len, t);
@@ -229,6 +318,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 	t = utftp_transmission_new(
 		(struct sockaddr *) &peer,
 		peer_len,
+		&own,
 		server_error_cb,
 		s
 	);
@@ -364,6 +454,17 @@ utftp_server_t *utftp_server_new(struct event_base *base, int fd, utftp_transmis
 
 	if (evutil_make_socket_nonblocking(fd) == -1) {
 		err_msg = sprintfa("failed to make server socket non-blocking: %s\n", strerror(errno));
+		goto cleanup_s;
+	}
+
+	const int one = 1;
+	if (setsockopt(fd, IPPROTO_IP, IP_RECVORIGDSTADDR, &one, sizeof(one)) == -1) {
+		err_msg = sprintfa("setsockopt IP_RECVORIGDSTADDR failed: %s\n", strerror(errno));
+		goto cleanup_s;
+	}
+
+	if (setsockopt(fd, IPPROTO_IPV6, IPV6_RECVORIGDSTADDR, &one, sizeof(one)) == -1) {
+		err_msg = sprintfa("setsockopt IPV6_RECVORIGDSTADDR failed: %s\n", strerror(errno));
 		goto cleanup_s;
 	}
 

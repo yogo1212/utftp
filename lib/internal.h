@@ -59,7 +59,8 @@ struct utftp_transmission {
     target; \
   })
 
-utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, socklen_t peer_len, utftp_error_cb error_cb, void *internal_ctx);
+/* own can be NULL but, if it's not, it must have the same address family as peer */
+utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, socklen_t peer_len, const struct sockaddr_storage *own, utftp_error_cb error_cb, void *internal_ctx);
 bool utftp_transmission_start(utftp_transmission_t *t, struct event_base *base, event_callback_fn cb);
 void utftp_transmission_free(utftp_transmission_t *t);
 

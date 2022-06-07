@@ -237,7 +237,7 @@ bool utftp_transmission_start(utftp_transmission_t *t, struct event_base *base, 
 	return event_add(t->evt, &tv) == 0;
 }
 
-utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, socklen_t peer_len, utftp_error_cb error_cb, void *internal_ctx)
+utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, socklen_t peer_len, const struct sockaddr_storage *own, utftp_error_cb error_cb, void *internal_ctx)
 {
 	utftp_transmission_t *t = malloc(sizeof(*t));
 	if (!t) {
@@ -266,25 +266,29 @@ utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, sockle
 	memcpy(&t->peer, peer, peer_len);
 
 	struct sockaddr_storage addr;
-	memset(&addr, 0, sizeof(addr));
-	addr.ss_family = peer->sa_family;
+	if (!own) {
+		memset(&addr, 0, sizeof(addr));
+		addr.ss_family = peer->sa_family;
 
-	switch (peer->sa_family) {
-	case AF_INET: ;
-		struct sockaddr_in *sin = (struct sockaddr_in *) &addr;
-		sin->sin_addr.s_addr = INADDR_ANY;
-		sin->sin_port = 0;
-		break;
-	case AF_INET6: ;
-		struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) &addr;
-		sin6->sin6_addr = in6addr_any;
-		sin6->sin6_port = 0;
-		break;
-	default:
-		error_cb(peer, peer_len, true, UTFTP_ERR_UNDEFINED, "peer address too large", internal_ctx);
+		switch (peer->sa_family) {
+		case AF_INET: ;
+			struct sockaddr_in *sin = (struct sockaddr_in *) &addr;
+			sin->sin_addr.s_addr = INADDR_ANY;
+			sin->sin_port = 0;
+			break;
+		case AF_INET6: ;
+			struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) &addr;
+			sin6->sin6_addr = in6addr_any;
+			sin6->sin6_port = 0;
+			break;
+		default:
+			error_cb(peer, peer_len, true, UTFTP_ERR_UNDEFINED, sprintfa("unknown peer address family %d", peer->sa_family), internal_ctx);
+		}
+
+		own = &addr;
 	}
 
-	if (bind(t->fd, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
+	if (bind(t->fd, (struct sockaddr *) own, sizeof(struct sockaddr_storage)) == -1) {
 		error_cb(peer, peer_len, true, UTFTP_ERR_UNDEFINED, sprintfa("couldn't bind socket (%s)", strerror(errno)), internal_ctx);
 		goto cleanup_s;
 	}

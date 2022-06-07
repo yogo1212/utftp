@@ -29,7 +29,7 @@ utftp_client_t *utftp_client_new(const struct sockaddr *peer, socklen_t peer_len
 
 	c->error_cb = error_cb;
 
-	c->t = utftp_transmission_new(peer, peer_len, error_cb, ctx);
+	c->t = utftp_transmission_new(peer, peer_len, NULL, error_cb, ctx);
 	if (!c->t)
 		goto cleanup_c;
 
