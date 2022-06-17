@@ -53,13 +53,20 @@ void utftp_normalise_mapped_ipv4(struct sockaddr *s, socklen_t *len)
 
 static inline void call_error_cb(const struct sockaddr *peer, socklen_t peer_len, bool remote, utftp_errcode_t error_code, const char *error_string, utftp_error_cb error_cb, void *ctx)
 {
-	if (error_cb) {
-		struct sockaddr_storage ss;
+	if (!error_cb)
+		return;
+
+	struct sockaddr_storage ss;
+
+	if (peer) {
 		memcpy(&ss, peer, peer_len);
 		socklen_t ss_len = peer_len;
 		utftp_normalise_mapped_ipv4((struct sockaddr *) &ss, &ss_len);
-		error_cb((struct sockaddr *) &ss, ss_len, remote, error_code, error_string, ctx);
+		peer = (struct sockaddr *) &ss;
+		peer_len = ss_len;
 	}
+
+	error_cb(peer, peer_len, remote, error_code, error_string, ctx);
 }
 
 void utftp_handle_local_error(int fd, const struct sockaddr *peer, socklen_t peer_len, utftp_errcode_t error_code, const char *error_string, utftp_error_cb error_cb, void *ctx)
