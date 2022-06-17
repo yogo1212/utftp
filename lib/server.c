@@ -226,7 +226,7 @@ static ssize_t pktsock_recv(int fd, struct sockaddr *src, socklen_t *src_len, st
 
 	switch (src->sa_family) {
 	case AF_INET:
-		if (*dst_len < sizeof(struct sockaddr_in)) {
+		if (*src_len < sizeof(struct sockaddr_in)) {
 			errno = ENOSPC;
 			return -1;
 		}
@@ -234,7 +234,7 @@ static ssize_t pktsock_recv(int fd, struct sockaddr *src, socklen_t *src_len, st
 		*src_len = sizeof(struct sockaddr_in);
 		break;
 	case AF_INET6:
-		if (*dst_len < sizeof(struct sockaddr_in6)) {
+		if (*src_len < sizeof(struct sockaddr_in6)) {
 			errno = ENOSPC;
 			return -1;
 		}
