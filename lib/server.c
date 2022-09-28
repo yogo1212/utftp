@@ -266,7 +266,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 	ssize_t rlen = pktsock_recv(fd, (struct sockaddr *) &peer, &peer_len, (struct sockaddr *) &own, &own_len, buf, sizeof(buf));
 	if (rlen == -1) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK)
-			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, strerror(errno), s->error_cb, s->ctx);
+			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, sprintfa("recvmsg: %s", strerror(errno)), s->error_cb, s->ctx);
 
 		return;
 	}

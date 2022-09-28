@@ -123,7 +123,7 @@ void utftp_transmission_receive_cb(utftp_transmission_t *t, const transmission_i
 	ssize_t rlen = recvfrom(t->fd, buf, sizeof(buf), 0, (struct sockaddr *) &peer, &peer_len);
 	if (rlen == -1) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK)
-			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, strerror(errno), cbs->error_cb, t->internal_ctx);
+			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, sprintfa("recvfrom: %s", strerror(errno)), cbs->error_cb, t->internal_ctx);
 
 		return;
 	}
@@ -192,7 +192,7 @@ void utftp_transmission_send_cb(utftp_transmission_t *t, const transmission_inte
 	ssize_t rlen = recvfrom(t->fd, buf, sizeof(buf), 0, (struct sockaddr *) &peer, &peer_len);
 	if (rlen == -1) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK)
-			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, strerror(errno), cbs->error_cb, t->internal_ctx);
+			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, sprintfa("recvfrom: %s", strerror(errno)), cbs->error_cb, t->internal_ctx);
 
 		return;
 	}

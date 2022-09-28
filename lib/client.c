@@ -207,7 +207,7 @@ static void first_read_cb(utftp_client_t *c, utftp_transmission_t *t, transmissi
 	ssize_t rlen = recvfrom(t->fd, buf, sizeof(buf), 0, (struct sockaddr *) &peer, &peer_len);
 	if (rlen == -1) {
 		if (errno != EAGAIN && errno != EWOULDBLOCK)
-			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, strerror(errno), c->error_cb, t->ctx);
+			utftp_handle_local_error(-1, NULL, 0, UTFTP_ERR_UNDEFINED, sprintfa("recvfrom: %s", strerror(errno)), c->error_cb, t->ctx);
 
 		return;
 	}
