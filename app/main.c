@@ -555,7 +555,7 @@ int main(int argc, char *argv[])
 			sin6->sin6_port = htons(port);
 			break;
 		default:
-			fprintf(stderr, "unknown address family: %d", addr.ss_family);
+			fprintf(stderr, "unknown address family: %d\n", addr.ss_family);
 			goto cleanup_base;
 		}
 
