@@ -458,7 +458,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "\tLISTEN_ADDRESS: bind to a specific address\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "general file path restrictions:\n");
-		fprintf(stderr, "\tby default, file names starting with a slash or going up directories are rejected.\n");
+		fprintf(stderr, "\tby default, file names starting with a slash or going up directories are accepted.\n");
 		fprintf(stderr, "\tWINDOWS_PATH_CHECKS: reject paths starting with \"x:\\\" or \"..\\\" or containing \"\\..\\\"\n");
 		fprintf(stderr, "\tNO_DIR_TRAVERSAL: reject paths containing slashes (or backslashes when using WINDOWS_PATH_CHECKS)\n");
 		fprintf(stderr, "\tALLOW_ABSOLUTE_PATHS: allow absolute paths (drive letters with WINDOWS_PATH_CHECKS)\n");
