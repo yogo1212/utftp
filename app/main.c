@@ -243,7 +243,7 @@ static bool is_valid_path(const char *path)
 				return false;
 		}
 
-		if (!getenv("ALLOW_ABSOLUTE_PATHS")) {
+		if (getenv("NO_ABSOLUTE_PATHS")) {
 			if (path[1] == ':' && path[2] == '\\')
 				return false;
 		}
@@ -258,7 +258,7 @@ static bool is_valid_path(const char *path)
 		// if so, combinations need to be checked as well
 	}
 
-	if (!getenv("ALLOW_ABSOLUTE_PATHS")) {
+	if (getenv("NO_ABSOLUTE_PATHS")) {
 		if (path[0] == '/')
 			return false;
 	}
@@ -476,7 +476,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "\tby default, file names starting with a slash or going up directories are accepted.\n");
 		fprintf(stderr, "\tWINDOWS_PATH_CHECKS: reject paths starting with \"x:\\\" or \"..\\\" or containing \"\\..\\\"\n");
 		fprintf(stderr, "\tNO_DIR_TRAVERSAL: reject paths containing slashes (or backslashes when using WINDOWS_PATH_CHECKS)\n");
-		fprintf(stderr, "\tALLOW_ABSOLUTE_PATHS: allow absolute paths (drive letters with WINDOWS_PATH_CHECKS)\n");
+		fprintf(stderr, "\tNO_ABSOLUTE_PATHS: reject absolute paths (drive letters with WINDOWS_PATH_CHECKS)\n");
 		fprintf(stderr, "\tNO_FOLLOW: reject paths containing symlinks\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "incoming file restrictions:\n");
