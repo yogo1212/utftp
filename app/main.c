@@ -538,7 +538,7 @@ int main(int argc, char *argv[])
 	}
 	else if (strcmp(operation, "get") == 0 || strcmp(operation, "put") == 0) {
 		if (argc < 2) {
-			fprintf(stderr, "usage: (get|put) host filaname\n");
+			fprintf(stderr, "usage: (get|put) host filename\n");
 			goto cleanup_base;
 		}
 
