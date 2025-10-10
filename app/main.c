@@ -589,17 +589,19 @@ int main(int argc, char *argv[])
 		const char *network_file_name = argv[1];
 		const char *local_file_name = argv[1];
 
-		if (!getenv("DONT_STRIP_FILENAME")) {
-			const char **strip_filename;
-			if (receiving)
-				strip_filename = &local_file_name;
-			else
-				strip_filename = &network_file_name;
+		const char **other_filename;
+		if (receiving)
+			other_filename = &local_file_name;
+		else
+			other_filename = &network_file_name;
 
+		if (argc > 2) {
+			*other_filename = argv[2];
+		} else if (!getenv("DONT_STRIP_FILENAME")) {
 			// TODO windows?
-			const char *stripped = strrchr(*strip_filename, '/');
+			const char *stripped = strrchr(*other_filename, '/');
 			if (stripped)
-				*strip_filename = stripped + 1;
+				*other_filename = stripped + 1;
 		}
 
 		// TODO when receiving, maybe only open file when the first block arrives
