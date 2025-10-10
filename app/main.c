@@ -461,13 +461,16 @@ int main(int argc, char *argv[])
 	if (argc == 0) {
 		fprintf(stderr, "usage:\n");
 		fprintf(stderr, "\tlisten\n");
-		fprintf(stderr, "\tget host filename\n");
-		fprintf(stderr, "\tput host filename\n");
+		fprintf(stderr, "\tget host remote_filename [local_filename]\n");
+		fprintf(stderr, "\tput host local_filename [remote_filename]\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "the following environment variables are supported.\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "general options:\n");
 		fprintf(stderr, "\tPORT: bind (with listen) or connect (client) to a specific port\n");
+		fprintf(stderr, "\n");
+		fprintf(stderr, "client only options:\n");
+		fprintf(stderr, "\tDONT_STRIP_FILENAME: don't strip the optional argument\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "server only options:\n");
 		fprintf(stderr, "\tLISTEN_ADDRESS: bind to a specific address\n");
@@ -583,17 +586,26 @@ int main(int argc, char *argv[])
 
 		file_context_t *fc = malloc(sizeof(file_context_t));
 
-		const char *file = argv[1];
+		const char *network_file_name = argv[1];
+		const char *local_file_name = argv[1];
 
-		// TODO windows?
-		const char *local_file = rindex(file, '/');
-		if (!local_file)
-			local_file = file;
+		if (!getenv("DONT_STRIP_FILENAME")) {
+			const char **strip_filename;
+			if (receiving)
+				strip_filename = &local_file_name;
+			else
+				strip_filename = &network_file_name;
+
+			// TODO windows?
+			const char *stripped = strrchr(*strip_filename, '/');
+			if (stripped)
+				*strip_filename = stripped + 1;
+		}
 
 		// TODO when receiving, maybe only open file when the first block arrives
-		fc->fd = open(local_file, file_flags(receiving), S_IRUSR | S_IWUSR);
+		fc->fd = open(local_file_name, file_flags(receiving), S_IRUSR | S_IWUSR);
 		if (fc->fd == -1) {
-			fprintf(stderr, "file \"%s\" can't be opened for %s: %s\n", local_file, receiving ? "writing" : "reading", strerror(errno));
+			fprintf(stderr, "file \"%s\" can't be opened for %s: %s\n", local_file_name, receiving ? "writing" : "reading", strerror(errno));
 			free(fc);
 			goto cleanup_base;
 		}
@@ -611,7 +623,7 @@ int main(int argc, char *argv[])
 		uint8_t *timeout = get_timeout();
 
 		if (receiving) {
-			if (!utftp_client_receive(c, base, UTFTP_MODE_OCTET, file, receive_block_cb, get_block_size(), timeout, _file_context_tsize_cb))
+			if (!utftp_client_receive(c, base, UTFTP_MODE_OCTET, network_file_name, receive_block_cb, get_block_size(), timeout, _file_context_tsize_cb))
 				goto cleanup_actor;
 		}
 		else {
@@ -623,11 +635,11 @@ int main(int argc, char *argv[])
 				*tsize = s.st_size;
 			}
 			else {
-				fprintf(stderr, "fstat failed for %s\n", file);
+				fprintf(stderr, "fstat failed for %s\n", local_file_name);
 				tsize = NULL;
 			}
 
-			if (!utftp_client_send(c, base, UTFTP_MODE_OCTET, file, send_block_cb, get_block_size(), timeout, tsize))
+			if (!utftp_client_send(c, base, UTFTP_MODE_OCTET, network_file_name, send_block_cb, get_block_size(), timeout, tsize))
 				goto cleanup_actor;
 		}
 	}
