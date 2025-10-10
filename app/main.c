@@ -459,7 +459,10 @@ int main(int argc, char *argv[])
 	argc--;
 
 	if (argc == 0) {
-		fprintf(stderr, "usage: listen, get, put\n");
+		fprintf(stderr, "usage:\n");
+		fprintf(stderr, "\tlisten\n");
+		fprintf(stderr, "\tget host filename\n");
+		fprintf(stderr, "\tput host filename\n");
 		fprintf(stderr, "\n");
 		fprintf(stderr, "the following environment variables are supported.\n");
 		fprintf(stderr, "\n");
