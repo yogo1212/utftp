@@ -104,14 +104,26 @@ static bool set_listen_addr(struct in6_addr *a)
 	}
 
 	if (strchr(listen_addr, ':')) {
-		if (inet_pton(AF_INET6, listen_addr, a) != 1) {
+		int r = inet_pton(AF_INET6, listen_addr, a);
+		if (r == 0) {
+			fprintf(stderr, "failed to parse IPv6 address: %s\n", listen_addr);
+			return false;
+		}
+
+		if (r != 1) {
 			fprintf(stderr, "failed to parse IPv6 address: %s (%s)\n", listen_addr, strerror(errno));
 			return false;
 		}
 	}
 	else {
 		struct in_addr a4;
-		if (inet_pton(AF_INET, listen_addr, &a4) != 1) {
+		int r = inet_pton(AF_INET, listen_addr, &a4);
+		if (r == 0) {
+			fprintf(stderr, "failed to parse IPv4 address: %s\n", listen_addr);
+			return false;
+		}
+
+		if (r != 1) {
 			fprintf(stderr, "failed to parse IPv4 address: %s (%s)\n", listen_addr, strerror(errno));
 			return false;
 		}
