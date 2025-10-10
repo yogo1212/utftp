@@ -593,8 +593,10 @@ int main(int argc, char *argv[])
 		actor = c;
 		cleanup = _utftp_client_free;
 
+		uint8_t *timeout = get_timeout();
+
 		if (receiving) {
-			if (!utftp_client_receive(c, base, UTFTP_MODE_OCTET, file, receive_block_cb, get_block_size(), get_timeout(), _file_context_tsize_cb))
+			if (!utftp_client_receive(c, base, UTFTP_MODE_OCTET, file, receive_block_cb, get_block_size(), timeout, _file_context_tsize_cb))
 				goto cleanup_actor;
 		}
 		else {
@@ -610,7 +612,7 @@ int main(int argc, char *argv[])
 				tsize = NULL;
 			}
 
-			if (!utftp_client_send(c, base, UTFTP_MODE_OCTET, file, send_block_cb, get_block_size(), get_timeout(), tsize))
+			if (!utftp_client_send(c, base, UTFTP_MODE_OCTET, file, send_block_cb, get_block_size(), timeout, tsize))
 				goto cleanup_actor;
 		}
 	}
