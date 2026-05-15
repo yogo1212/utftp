@@ -212,7 +212,7 @@ static void _file_context_tsize_cb(size_t tsize, void *ctx)
 	file_context_t *fc = ctx;
 
 	if (ftruncate(fc->fd, tsize) == -1)
-		fprintf(stderr, "ftrunctate failed: %s\n", strerror(errno));
+		fprintf(stderr, "ftruncate failed: %s\n", strerror(errno));
 }
 
 static void file_context_free(utftp_transmission_t *t, bool complete, void *ctx)
