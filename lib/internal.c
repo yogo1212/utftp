@@ -26,6 +26,39 @@ void utftp_internal_send_error(int fd, const struct sockaddr *peer, socklen_t pe
 	sendto(fd, buf, (ptrdiff_t) pos - (ptrdiff_t) buf, 0, peer, peer_len);
 }
 
+int utftp_cmp_sockaddr(const struct sockaddr_storage *a, const struct sockaddr_storage *b)
+{
+	if (a->ss_family != b->ss_family)
+		return 1;
+
+	switch (a->ss_family) {
+	case AF_INET: ;
+		const struct sockaddr_in *sin_a = (struct sockaddr_in *) a;
+		const struct sockaddr_in *sin_b = (struct sockaddr_in *) b;
+		if (sin_a->sin_port != sin_b->sin_port)
+			return 1;
+
+		return memcmp(&sin_a->sin_addr, &sin_b->sin_addr, sizeof(sin_a->sin_addr));
+
+		break;
+	case AF_INET6: ;
+		const struct sockaddr_in6 *sin6_a = (struct sockaddr_in6 *) a;
+		const struct sockaddr_in6 *sin6_b = (struct sockaddr_in6 *) b;
+		if (sin6_a->sin6_port != sin6_b->sin6_port)
+			return 1;
+
+		return memcmp(&sin6_a->sin6_addr, &sin6_b->sin6_addr, sizeof(sin6_a->sin6_addr));
+
+		break;
+	default:
+		fprintf(stderr, "utftp: cmp_sockaddr: unknown address family: %u\n", (unsigned) a->ss_family);
+		// don't know. never consider them equal
+		return 1;
+	}
+
+	return 0;
+}
+
 void utftp_normalise_mapped_ipv4(struct sockaddr *s, socklen_t *len)
 {
 	if (s->sa_family != AF_INET6)
