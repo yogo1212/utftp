@@ -241,18 +241,18 @@ utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, sockle
 {
 	utftp_transmission_t *t = malloc(sizeof(*t));
 	if (!t) {
-		error_cb(peer, peer_len, true, UTFTP_ERR_UNDEFINED, "couldn't allocate transmission data", internal_ctx);
+		error_cb(peer, peer_len, false, UTFTP_ERR_UNDEFINED, "couldn't allocate transmission data", internal_ctx);
 		return NULL;
 	}
 
 	t->fd = socket(peer->sa_family, SOCK_DGRAM | SOCK_NONBLOCK, 0);
 	if (t->fd == -1) {
-		error_cb(peer, peer_len, true, UTFTP_ERR_UNDEFINED, sprintfa("couldn't create socket (%s)", strerror(errno)), internal_ctx);
+		error_cb(peer, peer_len, false, UTFTP_ERR_UNDEFINED, sprintfa("couldn't create socket (%s)", strerror(errno)), internal_ctx);
 		goto cleanup_t;
 	}
 
 	if (peer_len > sizeof(t->peer)) {
-		error_cb(peer, peer_len, true, UTFTP_ERR_UNDEFINED, "peer address too large", internal_ctx);
+		error_cb(peer, peer_len, false, UTFTP_ERR_UNDEFINED, "peer address too large", internal_ctx);
 		goto cleanup_s;
 	}
 
@@ -282,14 +282,14 @@ utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, sockle
 			sin6->sin6_port = 0;
 			break;
 		default:
-			error_cb(peer, peer_len, true, UTFTP_ERR_UNDEFINED, sprintfa("unknown peer address family %d", peer->sa_family), internal_ctx);
+			error_cb(peer, peer_len, false, UTFTP_ERR_UNDEFINED, sprintfa("unknown peer address family %d", peer->sa_family), internal_ctx);
 		}
 
 		own = &addr;
 	}
 
 	if (bind(t->fd, (struct sockaddr *) own, sizeof(struct sockaddr_storage)) == -1) {
-		error_cb(peer, peer_len, true, UTFTP_ERR_UNDEFINED, sprintfa("couldn't bind socket (%s)", strerror(errno)), internal_ctx);
+		error_cb(peer, peer_len, false, UTFTP_ERR_UNDEFINED, sprintfa("couldn't bind socket (%s)", strerror(errno)), internal_ctx);
 		goto cleanup_s;
 	}
 
