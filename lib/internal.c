@@ -11,11 +11,14 @@ void utftp_internal_send_error(int fd, const struct sockaddr *peer, socklen_t pe
 	*((uint16_t *) pos) = htons(error_code);
 	pos = pos + sizeof(uint16_t);
 
+	// sizeof(buf) is far greater than 2 * sizeof(uint16_t)..
+	size_t rem = (size_t) remaining(buf, sizeof(buf), pos);
+
 	size_t err_len = strlen(error_string);
 
 	// truncate error message
-	if (err_len >= remaining(buf, sizeof(buf), pos))
-		err_len = remaining(buf, sizeof(buf), pos) - 1;
+	if (err_len >= rem)
+		err_len = rem - 1;
 
 	memcpy(pos, error_string, err_len);
 	pos = pos + err_len;

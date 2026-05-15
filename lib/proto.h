@@ -12,7 +12,7 @@
 #define OPTION_BIT_TSIZE   ((uint8_t)1<<2)
 
 #define remaining(start, len, current) \
-	((len) - ((ptrdiff_t) (current) - (ptrdiff_t) (start)))
+	((ssize_t) (len) - ((ptrdiff_t) (current) - (ptrdiff_t) (start)))
 
 
 typedef enum {
