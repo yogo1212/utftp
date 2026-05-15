@@ -350,7 +350,7 @@ static void server_read_cb(evutil_socket_t fd, short what, void *ctx)
 	case TFTP_OP_READ:
 		t->data_cb = s->send_cb(t, mode_u, filename, option_mask & OPTION_BIT_TSIZE ? &tsize : NULL, s->ctx);
 		// TODO tsize mustn't change otherwise
-		if (tsize == 0)
+		if (option_mask & OPTION_BIT_TSIZE && tsize == 0)
 			option_mask = option_mask & ~OPTION_BIT_TSIZE;
 
 		break;
