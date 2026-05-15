@@ -27,7 +27,7 @@ static bool get_file_size_limit(size_t *limit)
 	if (!s)
 		return false;
 
-	return sscanf(s, "%zu", limit) != 1;
+	return sscanf(s, "%zu", limit) == 1;
 }
 
 static bool get_port(uint16_t *port)
@@ -58,7 +58,7 @@ static uint16_t *get_block_size(void)
 		return NULL;
 
 	unsigned int buf;
-	if (sscanf(s, "%u", &buf) != 0) {
+	if (sscanf(s, "%u", &buf) != 1) {
 		fprintf(stderr, "couldn't parse block size \"%s\"\n", s);
 		return NULL;
 	}
@@ -80,7 +80,7 @@ static uint8_t *get_timeout(void)
 		return NULL;
 
 	unsigned int buf;
-	if (sscanf(s, "%u", &buf) != 0) {
+	if (sscanf(s, "%u", &buf) != 1) {
 		fprintf(stderr, "couldn't parse timeout \"%s\"\n", s);
 		return NULL;
 	}
