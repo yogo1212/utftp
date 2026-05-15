@@ -47,6 +47,8 @@ int utftp_cmp_sockaddr(const struct sockaddr_storage *a, const struct sockaddr_s
 	case AF_INET6: ;
 		const struct sockaddr_in6 *sin6_a = (struct sockaddr_in6 *) a;
 		const struct sockaddr_in6 *sin6_b = (struct sockaddr_in6 *) b;
+		if (sin6_a->sin6_scope_id != sin6_b->sin6_scope_id)
+			return 1;
 		if (sin6_a->sin6_port != sin6_b->sin6_port)
 			return 1;
 

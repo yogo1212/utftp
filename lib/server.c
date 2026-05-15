@@ -34,7 +34,6 @@ static void hash_sockaddr(const struct sockaddr_storage *s, size_t len, unsigned
 	case AF_INET6: ;
 		const struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) s;
 		HASH_JEN(&sin6->sin6_addr, sizeof(sin6->sin6_addr), addr_hashv);
-		// TODO only use scope_id for loopback addresses?
 		*hashv = addr_hashv ^ sin6->sin6_port ^ sin6->sin6_scope_id;
 		break;
 	default:
