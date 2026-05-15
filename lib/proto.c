@@ -99,7 +99,7 @@ const char *utftp_proto_next_zt(const char *ptr, size_t len)
 
 bool utftp_proto_detect_mode(const char *s, uint8_t *mode)
 {
-	for (utftp_mode_t i = 0; sizeof(mode_strings) / sizeof(mode_strings[0]); i++) {
+	for (utftp_mode_t i = 0; i < sizeof(mode_strings) / sizeof(mode_strings[0]); i++) {
 		if (strcasecmp(mode_strings[i], s) != 0)
 			continue;
 
