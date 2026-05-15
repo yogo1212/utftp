@@ -433,7 +433,7 @@ bool utftp_client_send(utftp_client_t *c, struct event_base *base, utftp_mode_t 
 	c->read_cb = first_read_cb;
 
 	if (!utftp_transmission_send_raw_buf(t)) {
-		utftp_handle_local_error(-1, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "failed to send read request", c->error_cb, t->ctx);
+		utftp_handle_local_error(-1, (struct sockaddr *) &t->peer, t->peer_len, UTFTP_ERR_UNDEFINED, "failed to send write request", c->error_cb, t->ctx);
 		return false;
 	}
 
