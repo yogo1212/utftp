@@ -273,11 +273,13 @@ utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, sockle
 		switch (peer->sa_family) {
 		case AF_INET: ;
 			struct sockaddr_in *sin = (struct sockaddr_in *) &addr;
+			peer_len = sizeof(*sin);
 			sin->sin_addr.s_addr = INADDR_ANY;
 			sin->sin_port = 0;
 			break;
 		case AF_INET6: ;
 			struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) &addr;
+			peer_len = sizeof(*sin6);
 			sin6->sin6_addr = in6addr_any;
 			sin6->sin6_port = 0;
 			break;
@@ -288,7 +290,7 @@ utftp_transmission_t *utftp_transmission_new(const struct sockaddr *peer, sockle
 		own = &addr;
 	}
 
-	if (bind(t->fd, (struct sockaddr *) own, sizeof(struct sockaddr_storage)) == -1) {
+	if (bind(t->fd, (struct sockaddr *) own, peer_len) == -1) {
 		error_cb(peer, peer_len, false, UTFTP_ERR_UNDEFINED, sprintfa("couldn't bind socket (%s)", strerror(errno)), internal_ctx);
 		goto cleanup_s;
 	}
