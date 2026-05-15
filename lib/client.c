@@ -29,7 +29,14 @@ utftp_client_t *utftp_client_new(const struct sockaddr *peer, socklen_t peer_len
 
 	c->error_cb = error_cb;
 
-	c->t = utftp_transmission_new(peer, peer_len, NULL, error_cb, ctx);
+	struct sockaddr_storage n_peer;
+	memcpy(&n_peer, peer, peer_len);
+
+	socklen_t n_peer_len = peer_len;
+
+	utftp_normalise_mapped_ipv4((struct sockaddr *) &n_peer, &n_peer_len);
+
+	c->t = utftp_transmission_new((struct sockaddr *) &n_peer, n_peer_len, NULL, error_cb, ctx);
 	if (!c->t)
 		goto cleanup_c;
 
