@@ -202,7 +202,7 @@ void utftp_transmission_send_cb(utftp_transmission_t *t, const transmission_inte
 
 	utftp_normalise_mapped_ipv4((struct sockaddr *) &peer, &peer_len);
 
-	if (peer.ss_family != t->peer.ss_family || memcmp(&peer, &t->peer, peer_len) != 0) {
+	if (utftp_cmp_sockaddr(&peer, &t->peer) != 0) {
 		utftp_internal_send_error(t->fd, (struct sockaddr *) &peer, peer_len, UTFTP_ERR_UNKNOWN_ID, "unknown peer");
 		return;
 	}
