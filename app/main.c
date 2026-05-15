@@ -362,7 +362,7 @@ static utftp_next_block_cb receive_cb(utftp_transmission_t *t, utftp_mode_t mode
 	if (fc->fd == -1) {
 		fprintf(stderr, "file \"%s\" can't be opened for writing: %s\n", file, strerror(errno));
 		utftp_transmission_end_with_error(t, UTFTP_ERR_UNDEFINED, "can't open file");
-		return NULL;
+		goto ouch_fc;
 	}
 
 	if (tsize) {
@@ -373,6 +373,10 @@ static utftp_next_block_cb receive_cb(utftp_transmission_t *t, utftp_mode_t mode
 	utftp_transmission_set_ctx(t, file_context_free, fc);
 
 	return receive_block_cb;
+
+ouch_fc:
+	free(fc);
+	return NULL;
 }
 
 static uint16_t send_block_cb(utftp_transmission_t *t, void *buf, uint16_t block_size)
