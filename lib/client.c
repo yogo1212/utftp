@@ -330,7 +330,7 @@ bool utftp_client_receive(utftp_client_t *c, struct event_base *base, utftp_mode
 		}
 
 		c->tsize_cb = tsize_cb;
-		c->option_mask = OPTION_BIT_TSIZE;
+		c->option_mask = c->option_mask | OPTION_BIT_TSIZE;
 	}
 
 	if (timeout) {
@@ -340,7 +340,7 @@ bool utftp_client_receive(utftp_client_t *c, struct event_base *base, utftp_mode
 			return false;
 		}
 
-		c->option_mask = OPTION_BIT_TIMEOUT;
+		c->option_mask = c->option_mask | OPTION_BIT_TIMEOUT;
 	}
 
 	if (block_size) {
@@ -350,7 +350,7 @@ bool utftp_client_receive(utftp_client_t *c, struct event_base *base, utftp_mode
 			return false;
 		}
 
-		c->option_mask = OPTION_BIT_BLKSIZE;
+		c->option_mask = c->option_mask | OPTION_BIT_BLKSIZE;
 	}
 
 	t->block_size = (ptrdiff_t) pos - (ptrdiff_t) t->buf;
@@ -406,7 +406,7 @@ bool utftp_client_send(utftp_client_t *c, struct event_base *base, utftp_mode_t 
 			return false;
 		}
 
-		c->option_mask = OPTION_BIT_TSIZE;
+		c->option_mask = c->option_mask | OPTION_BIT_TSIZE;
 	}
 
 	if (timeout) {
@@ -416,7 +416,7 @@ bool utftp_client_send(utftp_client_t *c, struct event_base *base, utftp_mode_t 
 			return false;
 		}
 
-		c->option_mask = OPTION_BIT_TIMEOUT;
+		c->option_mask = c->option_mask | OPTION_BIT_TIMEOUT;
 	}
 
 	if (block_size) {
@@ -426,7 +426,7 @@ bool utftp_client_send(utftp_client_t *c, struct event_base *base, utftp_mode_t 
 			return false;
 		}
 
-		c->option_mask = OPTION_BIT_BLKSIZE;
+		c->option_mask = c->option_mask | OPTION_BIT_BLKSIZE;
 	}
 
 	t->block_size = (ptrdiff_t) pos - (ptrdiff_t) t->buf;
