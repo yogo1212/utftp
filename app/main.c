@@ -30,6 +30,40 @@ static bool get_file_size_limit(size_t *limit)
 	return sscanf(s, "%zu", limit) == 1;
 }
 
+enum file_size_trunc_mode {
+	TRUNC_MODE_UNKNOWN = 0,
+	TRUNC_MODE_REJECT,
+	TRUNC_MODE_QUIET,
+	TRUNC_MODE_ABORT,
+};
+
+static enum file_size_trunc_mode get_trunc_mode(void)
+{
+	static enum file_size_trunc_mode mode = TRUNC_MODE_UNKNOWN;
+	if (mode != TRUNC_MODE_UNKNOWN)
+		return mode;
+
+	// default
+	mode = TRUNC_MODE_REJECT;
+
+	const char *s = getenv("FILE_SIZE_LIMIT_TRUNC");
+
+	if (strcmp(s, "reject") == 0) {
+		mode = TRUNC_MODE_REJECT;
+	}
+	else if (strcmp(s, "quiet") == 0) {
+		mode = TRUNC_MODE_QUIET;
+	}
+	else if (strcmp(s, "abort") == 0) {
+		mode = TRUNC_MODE_ABORT;
+	}
+	else if (strlen(s) > 0) {
+		fprintf(stderr, "unknown FILE_SIZE_LIMIT_TRUNC mode \"%s\" - default to reject\n", s);
+	}
+
+	return mode;
+}
+
 static bool get_port(uint16_t *port)
 {
 	const char *s = getenv("PORT");
@@ -308,19 +342,39 @@ static uint16_t receive_block_cb(utftp_transmission_t *t, void *buf, uint16_t bl
 {
 	file_context_t *fc = utftp_transmission_get_ctx(t);
 
-	if (fc->has_size_limit && ((size_t) lseek(fc->fd, 0, SEEK_CUR)) + block_size > fc->size_limit) {
-		// TODO filename?
-		fprintf(stderr, "write file size limit exceeded\n");
-		utftp_transmission_end_with_error(t, UTFTP_ERR_NO_SPACE, "file size limit exceeded");
-		return 0;
+	uint16_t actually_write = block_size;
+
+	if (fc->has_size_limit) {
+		// TODO this doesn't necessarily work for all kinds of files
+		size_t file_pos = ((size_t) lseek(fc->fd, 0, SEEK_CUR));
+
+		if (file_pos + block_size > fc->size_limit) {
+			// limit should never exceed file_pos by more than block_size.
+			actually_write = fc->size_limit - file_pos;
+			if (actually_write == 0)
+				goto skip_write;
+		}
 	}
 
-	ssize_t wlen = write(fc->fd, buf, block_size);
+	ssize_t wlen = write(fc->fd, buf, actually_write);
 	if (wlen == -1) {
 		// TODO filename?
 		fprintf(stderr, "write error: %s\n", strerror(errno));
 		utftp_transmission_end_with_error(t, UTFTP_ERR_UNDEFINED, "write error");
 		return 0;
+	}
+
+	// TODO partial writes
+
+	if (actually_write != block_size) {
+skip_write:
+		if (get_trunc_mode() == TRUNC_MODE_QUIET)
+			return block_size;
+
+		// "reject" and "abort" (silently handle other values as well on error)
+		// TODO filename?
+		fprintf(stderr, "write file size limit exceeded\n");
+		utftp_transmission_end_with_error(t, UTFTP_ERR_NO_SPACE, "file size limit exceeded");
 	}
 
 	return wlen;
@@ -358,7 +412,7 @@ static utftp_next_block_cb receive_cb(utftp_transmission_t *t, utftp_mode_t mode
 	fc->size_limit = global_limit;
 
 	if (tsize) {
-		if (have_global_limit && *tsize > global_limit) {
+		if (have_global_limit && get_trunc_mode() == TRUNC_MODE_REJECT && *tsize > global_limit) {
 			utftp_transmission_end_with_error(t, UTFTP_ERR_NO_SPACE, "file size limit exceeded");
 			goto ouch_fc;
 		}
@@ -499,6 +553,10 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "\tNO_CREATE: don't create files\n");
 		fprintf(stderr, "\tNO_OVERWRITE: don't overwrite files\n");
 		fprintf(stderr, "\tFILE_SIZE_LIMIT: limit the size for incoming transmissions\n");
+		fprintf(stderr, "\tTRUNC_MODE: control partial reception (also affects size option)\n");
+		fprintf(stderr, "\t            - \"abort\" end transmission with error when limit is exceeded (allowing partial writes)\n");
+		fprintf(stderr, "\t            - \"reject\" like abort but reject transmissions early when TSIZE is used (default)\n");
+		fprintf(stderr, "\t            - \"quiet\" stop writing but continue receiving to end the transmission\n");
 		return EXIT_FAILURE;
 	}
 
