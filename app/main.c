@@ -205,6 +205,8 @@ static const char *display_peer(const struct sockaddr *peer, socklen_t peer_len)
 
 typedef struct {
 	int fd;
+	bool has_size_limit;
+	size_t size_limit;
 } file_context_t;
 
 static void _file_context_tsize_cb(size_t tsize, void *ctx)
@@ -306,8 +308,7 @@ static uint16_t receive_block_cb(utftp_transmission_t *t, void *buf, uint16_t bl
 {
 	file_context_t *fc = utftp_transmission_get_ctx(t);
 
-	size_t limit;
-	if (get_file_size_limit(&limit) && ((size_t) lseek(fc->fd, 0, SEEK_CUR)) + block_size > limit) {
+	if (fc->has_size_limit && ((size_t) lseek(fc->fd, 0, SEEK_CUR)) + block_size > fc->size_limit) {
 		// TODO filename?
 		fprintf(stderr, "write file size limit exceeded\n");
 		utftp_transmission_end_with_error(t, UTFTP_ERR_NO_SPACE, "file size limit exceeded");
@@ -344,18 +345,26 @@ static utftp_next_block_cb receive_cb(utftp_transmission_t *t, utftp_mode_t mode
 		return NULL;
 	}
 
-	if (tsize) {
-		size_t limit;
-		if (get_file_size_limit(&limit) && *tsize > limit) {
-			utftp_transmission_end_with_error(t, UTFTP_ERR_NO_SPACE, "file size limit exceeded");
-			return NULL;
-		}
-	}
+	size_t global_limit;
+	bool have_global_limit = get_file_size_limit(&global_limit);
 
 	file_context_t *fc = malloc(sizeof(file_context_t));
 	if (!fc) {
 		fprintf(stderr, "malloc failed: %s\n", strerror(errno));
 		return NULL;
+	}
+
+	fc->has_size_limit = have_global_limit;
+	fc->size_limit = global_limit;
+
+	if (tsize) {
+		if (have_global_limit && *tsize > global_limit) {
+			utftp_transmission_end_with_error(t, UTFTP_ERR_NO_SPACE, "file size limit exceeded");
+			goto ouch_fc;
+		}
+
+		fc->has_size_limit = true;
+		fc->size_limit = *tsize;
 	}
 
 	fc->fd = open(file, file_flags(true), S_IRUSR | S_IWUSR);
